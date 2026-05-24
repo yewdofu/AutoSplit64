@@ -320,7 +320,7 @@ class RouteEditor(QtWidgets.QMainWindow):
         if y != 0:
             return
 
-        file_name, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Choose Icon", resource_utils.base_path("resources/icons"))
+        file_name, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Choose Icon", resource_utils.resource_path("resources/icons"))
 
         if not file_name:
             return
@@ -443,7 +443,7 @@ class RouteEditor(QtWidgets.QMainWindow):
 
     def open(self):
         """ Show native file dialog to select a .route file for use. """
-        file_name, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Open Route", resource_utils.absolute_path("routes"),
+        file_name, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Open Route", resource_utils.base_path("routes"),
                                                              "AS64 Route Files (*.as64)")
 
         if file_name:

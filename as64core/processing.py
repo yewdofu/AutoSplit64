@@ -1,6 +1,7 @@
 import time
 import json
 
+from as64core.resource_utils import resource_path
 
 processes = {}
 subprocess_hooks = {}
@@ -123,7 +124,7 @@ class ProcessorGenerator(object):
     @staticmethod
     def _open_file(file_path):
         try:
-            with open(file_path) as file:
+            with open(resource_path(file_path)) as file:
                 data = json.load(file)
         except FileNotFoundError:
             return None

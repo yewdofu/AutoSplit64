@@ -6,11 +6,15 @@ import cv2
 
 from as64core import capture_window, config
 from as64core import resource_utils
+from as64core.game_capture import get_available_devices
 from ..widgets import HLine
 from ..graphics import RectangleSelector
 from ..constants import (
     ICON_PATH
 )
+
+CAPTURE_SOURCE_WINDOW = "window"
+CAPTURE_SOURCE_DEVICE = "device"
 
 
 class CaptureEditor(QtWidgets.QDialog):
@@ -23,8 +27,6 @@ class CaptureEditor(QtWidgets.QDialog):
         self.window_title = "Game Capture Editor"
         self.setWindowIcon(QtGui.QIcon(resource_utils.resource_path(ICON_PATH)))
 
-        # File Paths
-        # TODO: ADD TO CONSTANTS
         self.preview_image_path = r'resources/game_preview.png'
         self.preview_not_found_image_path = r'resources/game_preview_not_found.png'
 
@@ -43,8 +45,17 @@ class CaptureEditor(QtWidgets.QDialog):
         self.cancel_btn = QtWidgets.QPushButton("Cancel")
 
         # Left Panel Widgets
+        self.source_lb = QtWidgets.QLabel("Source:")
+        self.source_combo = QtWidgets.QComboBox()
+        self.source_combo.addItems(["Window", "Video Device"])
+
         self.process_lb = QtWidgets.QLabel("Process:")
         self.process_combo = QtWidgets.QComboBox()
+
+        self.device_lb = QtWidgets.QLabel("Device:")
+        self.device_combo = QtWidgets.QComboBox()
+        self.device_refresh_btn = QtWidgets.QPushButton("Refresh")
+
         self.capture_btn = QtWidgets.QPushButton("Capture")
 
         # Graphics View
@@ -61,18 +72,14 @@ class CaptureEditor(QtWidgets.QDialog):
     def initialize(self):
         self.setWindowTitle(self.window_title)
 
-        # Set Top Level Layouts
         self.setLayout(self.main_layout)
         self.left_widget.setLayout(self.left_layout)
         self.right_widget.setLayout(self.right_layout)
 
         self.right_widget.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
-
-        # Configure Top Level Widgets
         self.left_widget.setFixedWidth(220)
         self.right_widget.setFixedWidth(220)
 
-        # Add Top Level Widgets
         self.main_layout.addWidget(self.left_widget)
         self.main_layout.addWidget(self.graphics_view)
         self.main_layout.addWidget(self.right_widget)
@@ -80,15 +87,22 @@ class CaptureEditor(QtWidgets.QDialog):
         # Left Widget
         self.capture_btn.setDefault(False)
         self.capture_btn.setAutoDefault(False)
+        self.source_combo.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
         self.process_combo.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
+        self.device_combo.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
+        self.device_refresh_btn.setMaximumWidth(60)
 
         self._refresh_process_list()
 
-        self.left_layout.addWidget(self.process_lb, 0, 0)
-        self.left_layout.addWidget(self.process_combo, 0, 1)
-        self.left_layout.addWidget(self.capture_btn, 1, 0, 1, 2)
-
-        self.left_layout.addItem(QtWidgets.QSpacerItem(20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding), 3, 0)
+        self.left_layout.addWidget(self.source_lb, 0, 0)
+        self.left_layout.addWidget(self.source_combo, 0, 1, 1, 2)
+        self.left_layout.addWidget(self.process_lb, 1, 0)
+        self.left_layout.addWidget(self.process_combo, 1, 1, 1, 2)
+        self.left_layout.addWidget(self.device_lb, 2, 0)
+        self.left_layout.addWidget(self.device_combo, 2, 1)
+        self.left_layout.addWidget(self.device_refresh_btn, 2, 2)
+        self.left_layout.addWidget(self.capture_btn, 3, 0, 1, 3)
+        self.left_layout.addItem(QtWidgets.QSpacerItem(20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding), 4, 0)
 
         # Right Widget
         self.apply_btn.setDefault(False)
@@ -102,18 +116,30 @@ class CaptureEditor(QtWidgets.QDialog):
         self.right_layout.addWidget(self.apply_btn, 15, 0)
         self.right_layout.addWidget(self.cancel_btn, 15, 1)
 
-        # Configure Graphics View
         self.refresh_graphics_scene()
 
         # Connections
         self.graphics_scene.item_update.connect(self.on_graphics_item_update)
-
+        self.source_combo.currentIndexChanged.connect(self._on_source_changed)
         self.capture_btn.clicked.connect(self.refresh_graphics_scene)
         self.apply_btn.clicked.connect(self.apply_clicked)
         self.cancel_btn.clicked.connect(self.cancel_clicked)
         self.game_region_panel.updated.connect(self.on_game_region_panel_update)
         self.process_combo.currentIndexChanged.connect(self.refresh_graphics_scene)
+        self.device_refresh_btn.clicked.connect(self._refresh_device_list)
 
+        self.refresh_graphics_scene()
+
+    def _is_device_mode(self):
+        return self.source_combo.currentIndex() == 1
+
+    def _on_source_changed(self, index):
+        is_device = (index == 1)
+        self.process_lb.setVisible(not is_device)
+        self.process_combo.setVisible(not is_device)
+        self.device_lb.setVisible(is_device)
+        self.device_combo.setVisible(is_device)
+        self.device_refresh_btn.setVisible(is_device)
         self.refresh_graphics_scene()
 
     def _refresh_process_list(self):
@@ -121,44 +147,69 @@ class CaptureEditor(QtWidgets.QDialog):
         self._process_list = capture_window.get_visible_processes()
         self.process_combo.addItems([proc[0].name() for proc in self._process_list])
 
+    def _refresh_device_list(self):
+        saved_index = config.get("game", "device_index")
+        self.device_combo.clear()
+        self._device_list = get_available_devices()
+        for i, name in self._device_list:
+            self.device_combo.addItem(name, i)
+        idx = self.device_combo.findData(saved_index)
+        if idx >= 0:
+            self.device_combo.setCurrentIndex(idx)
+
     def show(self):
-        # Load game_region from preferences
         game_region = config.get('game', 'game_region')
         self.game_region_selector.resize(game_region[2], game_region[3])
         self.game_region_selector.setPos(game_region[0], game_region[1])
-
         self.game_region_panel.update_text(*[str(v) for v in game_region])
 
-        self._refresh_process_list()
+        # Set source from config
+        source = config.get("game", "capture_source")
+        self.source_combo.setCurrentIndex(0 if source == CAPTURE_SOURCE_WINDOW else 1)
+        self._on_source_changed(self.source_combo.currentIndex())
 
-        p_name = config.get("game", "process_name")
-
-        for i in range(len(self._process_list)):
-            if self._process_list[i][0].name() == p_name:
-                self.process_combo.setCurrentIndex(i)
+        if source == CAPTURE_SOURCE_WINDOW:
+            self._refresh_process_list()
+            p_name = config.get("game", "process_name")
+            for i in range(len(self._process_list)):
+                if self._process_list[i][0].name() == p_name:
+                    self.process_combo.setCurrentIndex(i)
+        else:
+            self._refresh_device_list()
 
         self.refresh_graphics_scene()
-
         config.create_rollback()
         super().show()
 
     def apply_clicked(self):
         if not self._is_correct_ratio():
-             if self.display_warning("A non 4:3 game ratio was detected, you may experience sub-optimal performance."):
-                 return
+            if self.display_warning("A non 4:3 game ratio was detected, you may experience sub-optimal performance."):
+                return
 
         if not self._is_minimum_size():
             if self.display_warning("Game width and height are below the recommended minimum (614, 448). You may experience sub-optimal performance."):
                 return
 
-        # Config
         config.set_key("game", "game_region", self.game_region_panel.get_data())
-        config.set_key("game", "process_name", self.process_combo.currentText())
 
-        try:
-            config.set_key("game", "capture_size", capture_window.get_capture_size(self._process_list[self.process_combo.currentIndex()][1]))
-        except:
-            pass
+        if self._is_device_mode():
+            device_data = self.device_combo.currentData()
+            if device_data is not None:
+                config.set_key("game", "device_index", device_data)
+                config.set_key("game", "capture_source", CAPTURE_SOURCE_DEVICE)
+                cap = cv2.VideoCapture(device_data, cv2.CAP_DSHOW)
+                if cap.isOpened():
+                    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    config.set_key("game", "capture_size", [w, h])
+                    cap.release()
+        else:
+            config.set_key("game", "process_name", self.process_combo.currentText())
+            config.set_key("game", "capture_source", CAPTURE_SOURCE_WINDOW)
+            try:
+                config.set_key("game", "capture_size", capture_window.get_capture_size(self._process_list[self.process_combo.currentIndex()][1]))
+            except Exception:
+                pass
 
         config.save_config()
         self.applied.emit()
@@ -177,66 +228,62 @@ class CaptureEditor(QtWidgets.QDialog):
         self.game_region_selector.setPos(e[0], e[1])
 
     def refresh_graphics_scene(self):
-        """
-        Clears the graphics scene and view, redraws all components including new screen capture
-        :return:
-        """
-
-        # Remove all items that may be in the scene before clearing. Prevents program crash.
         self.graphics_scene.removeItem(self.game_region_selector)
-
-        # Clear scene and update viewport
         self.graphics_scene.clear()
         self.graphics_view.update()
 
-        # Update screen capture
-        selected_hwnd = 0
+        if self._is_device_mode():
+            self._capture_device_frame()
+        else:
+            self._capture_window_frame()
 
+        self.preview_pixmap.load(resource_utils.resource_path(self.preview_image_path))
+        self.graphics_scene.addPixmap(self.preview_pixmap)
+        self.graphics_scene.addItem(self.game_region_selector)
+
+    def _capture_window_frame(self):
+        selected_hwnd = 0
         try:
             selected_hwnd = self._process_list[self.process_combo.currentIndex()][1]
-        except IndexError:
+        except (IndexError, AttributeError):
             pass
 
         if selected_hwnd:
             try:
                 preview_image = capture_window.capture(selected_hwnd)
                 cv2.imwrite(resource_utils.resource_path(self.preview_image_path), preview_image)
-            except:
+            except Exception:
                 pass
 
-        self.preview_pixmap.load(resource_utils.resource_path(self.preview_image_path))
-
-        # Re-add all items to scene
-        self.graphics_scene.addPixmap(self.preview_pixmap)
-        self.graphics_scene.addItem(self.game_region_selector)
+    def _capture_device_frame(self):
+        device_data = self.device_combo.currentData()
+        if device_data is None:
+            return
+        try:
+            cap = cv2.VideoCapture(device_data, cv2.CAP_DSHOW)
+            if cap.isOpened():
+                ret, frame = cap.read()
+                if ret:
+                    cv2.imwrite(resource_utils.resource_path(self.preview_image_path), frame)
+                cap.release()
+        except Exception:
+            pass
 
     def _is_correct_ratio(self):
-        ideal_ratio = 4/3
+        ideal_ratio = 4 / 3
         threshold = 0.093
-
         region_data = self.game_region_panel.get_data()
-        if ideal_ratio - threshold <= region_data[2]/region_data[3] <= ideal_ratio + threshold:
-            return True
-        else:
-            return False
+        return ideal_ratio - threshold <= region_data[2] / region_data[3] <= ideal_ratio + threshold
 
     def _is_minimum_size(self):
         region_data = self.game_region_panel.get_data()
-
-        minimum_width = 612
-        minimum_height = 448
-
-        if region_data[2] < minimum_width or region_data[3] < minimum_height:
-            return False
-        else:
-            return True
+        return region_data[2] >= 612 and region_data[3] >= 448
 
     def closeEvent(self, e):
         config.rollback()
         super().closeEvent(e)
 
     def display_warning(self, message, title="Warning"):
-
         ignore_btn = QtWidgets.QPushButton(r'Ignore Warning and Apply')
         back_btn = QtWidgets.QPushButton("Continue Editing")
         ignore_btn.setFixedSize(150, 30)
@@ -249,9 +296,7 @@ class CaptureEditor(QtWidgets.QDialog):
         msg.addButton(ignore_btn, QtWidgets.QMessageBox.NoRole)
         msg.addButton(back_btn, QtWidgets.QMessageBox.YesRole)
 
-        result = msg.exec_()
-
-        return result
+        return msg.exec_()
 
 
 class RectangleCapturePanel(QtWidgets.QWidget):
@@ -260,10 +305,8 @@ class RectangleCapturePanel(QtWidgets.QWidget):
     def __init__(self, title, parent=None):
         super().__init__(parent)
 
-        # Layout
         self.main_layout = QtWidgets.QGridLayout(self)
 
-        # Widgets
         self.title_lb = QtWidgets.QLabel(title)
         self.xoffset_lb = QtWidgets.QLabel("X Offset:")
         self.yoffset_lb = QtWidgets.QLabel("Y Offset:")
@@ -279,11 +322,8 @@ class RectangleCapturePanel(QtWidgets.QWidget):
         self.initialize()
 
     def initialize(self):
-
-        # Set Layout
         self.setLayout(self.main_layout)
 
-        # Configure Widgets
         self.xoffset_lb.setFixedWidth(70)
         self.yoffset_lb.setFixedWidth(70)
         self.width_lb.setFixedWidth(70)
@@ -304,7 +344,6 @@ class RectangleCapturePanel(QtWidgets.QWidget):
         self.width_le.setValidator(self.int_validator)
         self.height_le.setValidator(self.int_validator)
 
-        # Configure Layout
         line = HLine()
 
         self.main_layout.addWidget(self.title_lb, 0, 0, 1, 2)
@@ -313,13 +352,11 @@ class RectangleCapturePanel(QtWidgets.QWidget):
         self.main_layout.addWidget(self.yoffset_lb, 3, 0)
         self.main_layout.addWidget(self.width_lb, 4, 0)
         self.main_layout.addWidget(self.height_lb, 5, 0)
-
         self.main_layout.addWidget(self.xoffset_le, 2, 1)
         self.main_layout.addWidget(self.yoffset_le, 3, 1)
         self.main_layout.addWidget(self.width_le, 4, 1)
         self.main_layout.addWidget(self.height_le, 5, 1)
 
-        # Connections
         self.xoffset_le.editingFinished.connect(self.text_changed)
         self.yoffset_le.editingFinished.connect(self.text_changed)
         self.width_le.editingFinished.connect(self.text_changed)
@@ -328,20 +365,17 @@ class RectangleCapturePanel(QtWidgets.QWidget):
     def update_text(self, x_offset=None, y_offset=None, width=None, height=None):
         if x_offset:
             self.xoffset_le.setText(x_offset)
-
         if y_offset:
             self.yoffset_le.setText(y_offset)
-
         if width:
             self.width_le.setText(width)
-
         if height:
             self.height_le.setText(height)
 
     def text_changed(self):
         try:
             self.updated.emit(self.get_data())
-        except:
+        except Exception:
             pass
 
     def get_data(self):
@@ -351,4 +385,3 @@ class RectangleCapturePanel(QtWidgets.QWidget):
 
 class CaptureGraphicsScene(QtWidgets.QGraphicsScene):
     item_update = QtCore.pyqtSignal(object)
-

@@ -16,7 +16,7 @@ class OutputDialog(QtWidgets.QDialog):
     def __init__(self, parent=None):
         super().__init__(parent, QtCore.Qt.WindowSystemMenuHint | QtCore.Qt.WindowCloseButtonHint)
         self.window_title = "Output"
-        self.setWindowIcon(QtGui.QIcon(resource_utils.base_path(ICON_PATH)))
+        self.setWindowIcon(QtGui.QIcon(resource_utils.resource_path(ICON_PATH)))
 
         # Output Reader
         self.output_reader = None

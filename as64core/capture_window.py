@@ -86,7 +86,7 @@ def capture(hwnd):
     bmp_info = save_bitmap.GetInfo()
     bmp_str = save_bitmap.GetBitmapBits(True)
 
-    image = np.fromstring(bmp_str, np.uint8).reshape(bmp_info['bmHeight'], bmp_info['bmWidth'], 4)[:,:,:3]
+    image = np.frombuffer(bmp_str, np.uint8).reshape(bmp_info['bmHeight'], bmp_info['bmWidth'], 4)[:,:,:3]
 
     win32gui.DeleteObject(save_bitmap.GetHandle())
     save_dc.DeleteDC()

@@ -15,17 +15,17 @@
   - [LiveSplit Server](#livesplit-server)
   - [Game Capture](#game-capture)
 - [Troubleshooting](#troubleshooting)
-- [Running/Building From Source](#running/building-source)
+- [Running/Building From Source](#runningbuilding-from-source)
 - [Credit](#credit)
 - [Contact](#contact)
 - [Donate](#donate)
-- [Author](#release)
+- [Author](#author)
 
 ## Introduction
 
 Inspired by Gerardo Cervantes's [Star Classifier](https://github.com/gerardocervantes8/Star-Classifier-For-Mario-64), AutoSplit 64 analyzes your game capture to automate splitting.
 
-AutoSplit64 is primarily designed for console use, and is the only officialy supported platform, however may still function for Emulator.
+AutoSplit64 is primarily designed for console use, and is the only officially supported platform, however may still function for Emulator.
 For details on proper emulator configuration see Giboss's [Setup Guide](https://goo.gl/PKGDn6).
 Virtual Console is not supported.
 
@@ -95,27 +95,52 @@ A regular split will trigger when the specified number of stars have been collec
 Every time a star is collected, or a split, undo or skip is triggered, the fadeout and fadein count are reset to 0.
 The Route Editor has been designed to look and function similar to the split editor found in LiveSplit to make it as familiar as possible.
 
-**The easiest method of creating routes is to import your splits you use for LiveSplit. To do this, in the Route Editor, nagivate to `File -> Convert LSS`. Open the `.lss` file you use with LiveSplit. AutoSplit 64 will attempt to fill in as many details as possible to simplify the route creation process, however it is important you check each split to make sure it is correct.**
+**The easiest method of creating routes is to import your splits you use for LiveSplit. To do this, in the Route Editor, navigate to `File -> Convert LSS`. Open the `.lss` file you use with LiveSplit. AutoSplit 64 will attempt to fill in as many details as possible to simplify the route creation process, however it is important you check each split to make sure it is correct.**
 
 ## Troubleshooting
 
 If you encounter any issues, please run through all steps below.
 
 - Check capture coordinates are correct (`Right Click -> Edit Coordinates`)
-- Ensure LiveSplit server is running (`Right Click LiveSplit -> Control -> Start Server')
+- Ensure LiveSplit server is running (`Right Click LiveSplit -> Control -> Start Server`)
 - Check the correct route is loaded, and that the route file is accurate (i.e. correct star counts, fadeout/fadein counts)
-- Make sure SRL Mode (Right Click -> SRL Mode) is disabled if you want AutoSplit64 to detect console resets
+- Make sure SRL Mode (`Right Click -> SRL Mode`) is disabled if you want AutoSplit64 to detect console resets
 - Generate reset templates (`Right Click -> Generate Reset Templates`)
 - Enlarge your game capture window if it is very small
-- Make sure the captures colour settings (i.e. saturation) are default or close to default
+- Make sure the capture's colour settings (i.e. saturation) are default or close to default
 - If using an unpowered splitter, compare the whiteness of your star select screens to other players. If it is extremely dull you may need to increase your capture brightness
 - Ensure your capture is set to a 4:3 aspect ratio (or close to)
 
-## Running/Building Source
+## Running/Building From Source
 
-- **Python:** &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`3.6.8`<br/>
-- **Dependencies:** &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;See `requirements.txt`<br/>
-- **Build Command:** &nbsp;`pyinstaller -windowed --icon="resources\gui\icons\icon.ico" AutoSplit64.py`
+**Requirements**
+
+- Python 3.11 or later
+- [uv](https://docs.astral.sh/uv/getting-started/installation/) (package manager)
+
+**Setup**
+
+```bash
+# Install dependencies
+uv sync
+
+# Run from source
+uv run AutoSplit64.py
+```
+
+**Build exe**
+
+```bash
+uv run --group dev pyinstaller AutoSplit64.spec
+```
+
+Output: `dist/AutoSplit64/AutoSplit64.exe`
+
+**Convert model (only needed if you have a new `.hdf5` model)**
+
+```bash
+uv run --group dev python tools/convert_to_onnx.py
+```
 
 ## Credit
 

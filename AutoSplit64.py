@@ -2,6 +2,8 @@ import sys
 from threading import Thread
 import logging
 
+import onnxruntime  # must be imported in main thread before worker threads start
+
 from PyQt5 import QtCore, QtWidgets, QtGui
 
 from as64gui.app import App
@@ -51,6 +53,15 @@ class AutoSplit64(QtCore.QObject):
     #         self.update_found.emit({"found": False, "current": None, "latest": None, "override_ignore": override_ignore})
 
     def start(self):
+        try:
+            self._start()
+        except Exception as e:
+            import traceback
+            print(traceback.format_exc())
+            self.error.emit(str(e))
+            self.app.set_started(False)
+
+    def _start(self):
         as64core.init()
 
         register_process("WAIT", ProcessWait())
@@ -133,6 +144,12 @@ class AutoSplit64(QtCore.QObject):
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        filename=".log",
+        level=logging.DEBUG,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    )
+
     # Create QT Application
     qt_app = QtWidgets.QApplication(sys.argv)
 

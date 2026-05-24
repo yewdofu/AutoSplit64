@@ -6,11 +6,12 @@ import cv2
 import numpy as np
 
 from . import config, livesplit
-from .game_capture import GameCapture
+from .game_capture import GameCapture, DeviceCapture
 from .model import Model, PredictionInfo
 from .image_utils import is_black, is_white, convert_to_cv2
 from .route_loader import load as load_route
 from .processing import ProcessorSwitch
+from .resource_utils import resource_path
 
 from .constants import (
     NO_FADE,
@@ -57,10 +58,13 @@ class Base(Thread):
                 version = config.get("route", "path")
 
         # Initialize the Game Capture
-        self._game_capture = GameCapture(config.get("game", "process_name"), config.get("game", "game_region"), version)
+        if config.get("game", "capture_source") == "device":
+            self._game_capture = DeviceCapture(config.get("game", "device_index"), config.get("game", "game_region"), version)
+        else:
+            self._game_capture = GameCapture(config.get("game", "process_name"), config.get("game", "game_region"), version)
 
         # Initialise Prediction Model
-        self._model = Model(config.get("model", "path"), config.get("model", "width"), config.get("model", "height"))
+        self._model = Model(resource_path(config.get("model", "path")), config.get("model", "width"), config.get("model", "height"))
 
         # Main Loop Toggle
         self._running = False

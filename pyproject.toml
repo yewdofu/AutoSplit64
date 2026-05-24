@@ -1,0 +1,29 @@
+[project]
+name = "autosplit64"
+version = "0.3.0"
+description = "Automated LiveSplit for Super Mario 64 speedruns"
+requires-python = ">=3.11"
+dependencies = [
+    "PyQt5>=5.15.10",
+    "numpy>=1.23",
+    "opencv-python>=4.8",
+    "pywin32>=306",
+    "pywin32-ctypes>=0.2.2",
+    "psutil>=5.9",
+    "onnxruntime>=1.17",
+    "pygrabber>=0.2",
+]
+
+[dependency-groups]
+dev = [
+    "pyinstaller>=6.0",
+    "tf2onnx>=1.16",
+    "tensorflow>=2.16",
+    "tf-keras>=2.21.0",
+]
+
+[tool.uv]
+constraint-dependencies = [
+    # PyQt5-Qt5 5.15.3+ dropped Windows wheels; pin to last working version
+    "PyQt5-Qt5==5.15.2",
+]

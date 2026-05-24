@@ -1,0 +1,58 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        id: setup-python
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync --python "${{ steps.setup-python.outputs.python-path }}"
+
+      - name: Verify Python
+        run: |
+          uv run python -c "
+          import sys, os
+          print('Python:', sys.version)
+          print('Exe:', sys.executable)
+          print('Exec prefix:', sys.exec_prefix)
+          dll = os.path.join(sys.exec_prefix, f'python{sys.version_info.major}{sys.version_info.minor}.dll')
+          if os.path.exists(dll):
+              print('DLL:', dll)
+          else:
+              dll2 = os.path.join(os.path.dirname(sys.executable), f'python{sys.version_info.major}{sys.version_info.minor}.dll')
+              print('DLL (fallback):', dll2, 'exists:', os.path.exists(dll2))
+          "
+
+      - name: Build with PyInstaller
+        run: uv run --group dev pyinstaller -y AutoSplit64.spec
+
+      - name: Show bundled python313.dll path
+        run: Get-Item dist\AutoSplit64\_internal\python313.dll | Select-Object FullName, Length
+
+      - name: Create zip
+        run: Compress-Archive -Path dist\AutoSplit64\* -DestinationPath "AutoSplit64-${{ github.ref_name }}.zip"
+
+      - name: Create GitHub Release
+        run: |
+          gh release delete "${{ github.ref_name }}" --yes 2>$null; true
+          gh release create "${{ github.ref_name }}" "AutoSplit64-${{ github.ref_name }}.zip" --title "AutoSplit64 ${{ github.ref_name }}" --generate-notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

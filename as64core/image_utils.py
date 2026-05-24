@@ -1,5 +1,4 @@
 import numpy as np
-from keras.preprocessing.image import img_to_array
 import cv2
 
 
@@ -14,7 +13,7 @@ def is_white(image, threshold=0.8):
 
 
 def convert_to_np(img_array):
-    np_images = [(img_to_array(image) / 255) for image in img_array]
+    np_images = [np.array(image, dtype='float32') / 255 for image in img_array]
 
     return np.array(np_images)
 

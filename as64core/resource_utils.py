@@ -23,12 +23,11 @@ def resource_path(relative_path):
 
     Credit: https://stackoverflow.com/questions/7674790/bundling-data-files-with-pyinstaller-onefile/13790741#13790741
     """
-    # try:
-    #     # PyInstaller creates a temp folder and stores path in _MEIPASS
-    #     path = sys._MEIPASS
-    # except Exception:
-    #     path = os.path.abspath(".")
-    path = os.path.abspath(".")
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        path = sys._MEIPASS
+    except Exception:
+        path = os.path.abspath(".")
     return os.path.join(path, relative_path).replace('\\', '/')
 
 

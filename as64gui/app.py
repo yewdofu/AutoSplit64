@@ -31,27 +31,27 @@ class App(QtWidgets.QMainWindow):
         self.setAttribute(QtCore.Qt.WA_DeleteOnClose, True)
         self.width = 365
         self.height = 259
-        self.setWindowIcon(QtGui.QIcon(base_path(constants.ICON_PATH)))
+        self.setWindowIcon(QtGui.QIcon(resource_path(constants.ICON_PATH)))
 
         # Dragging
         self._drag = False
         self._drag_position = None
 
         # Pixmaps
-        self.start_pixmap = QtGui.QPixmap(base_path(constants.START_PATH))
-        self.stop_pixmap = QtGui.QPixmap(base_path(constants.STOP_PATH))
-        self.init_pixmap = QtGui.QPixmap(base_path(constants.INIT_PATH))
+        self.start_pixmap = QtGui.QPixmap(resource_path(constants.START_PATH))
+        self.stop_pixmap = QtGui.QPixmap(resource_path(constants.STOP_PATH))
+        self.init_pixmap = QtGui.QPixmap(resource_path(constants.INIT_PATH))
 
         # Widgets
         self.central_widget = QtWidgets.QWidget(self)
         self.star_count = StarCountDisplay(parent=self.central_widget)
-        self.star_btn = PictureButton(QtGui.QPixmap(base_path(constants.STAR_PATH)),
-                                      pixmap_pressed=QtGui.QPixmap(base_path(constants.STAR_HOVER_PATH)),
-                                      pixmap_hover=QtGui.QPixmap(base_path(constants.STAR_HOVER_PATH)),
+        self.star_btn = PictureButton(QtGui.QPixmap(resource_path(constants.STAR_PATH)),
+                                      pixmap_pressed=QtGui.QPixmap(resource_path(constants.STAR_HOVER_PATH)),
+                                      pixmap_hover=QtGui.QPixmap(resource_path(constants.STAR_HOVER_PATH)),
                                       parent=self.central_widget)
         self.start_btn = StateButton(self.start_pixmap, self.start_pixmap, parent=self.central_widget)
-        self.close_btn = PictureButton(QtGui.QPixmap(base_path(constants.CLOSE_PATH)), parent=self.central_widget)
-        self.minimize_btn = PictureButton(QtGui.QPixmap(base_path(constants.MINIMIZE_PATH)), parent=self.central_widget)
+        self.close_btn = PictureButton(QtGui.QPixmap(resource_path(constants.CLOSE_PATH)), parent=self.central_widget)
+        self.minimize_btn = PictureButton(QtGui.QPixmap(resource_path(constants.MINIMIZE_PATH)), parent=self.central_widget)
         self.split_list = SplitListWidget(self.central_widget)
 
         # Font
@@ -224,7 +224,7 @@ class App(QtWidgets.QMainWindow):
 
     def open_route_browser(self):
         """ Show native file dialog to select a .route file for use. """
-        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Open Route", absolute_path("routes"),
+        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Open Route", base_path("routes"),
                                                              "AS64 Route Files (*.as64)")
 
         if file_path:
@@ -371,18 +371,24 @@ class App(QtWidgets.QMainWindow):
     def _load_route_dir(self):
         self._routes = {}
 
-        for file in os.listdir("routes"):
+        routes_dir = base_path("routes")
+        if not os.path.isdir(routes_dir):
+            os.makedirs(routes_dir)
+            return
+
+        for file in os.listdir(routes_dir):
             if file.endswith(".as64"):
-                route = route_loader.load("routes/" + file)
+                route_path = os.path.join(routes_dir, file)
+                route = route_loader.load(route_path)
 
                 if route:
                     category = route.category
 
                     try:
-                        self._routes[category].append([route.title, "routes/" + file])
+                        self._routes[category].append([route.title, route_path])
                     except KeyError:
                         self._routes[category] = []
-                        self._routes[category].append([route.title, "routes/" + file])
+                        self._routes[category].append([route.title, route_path])
 
     def _on_route_update(self):
         self._load_route_dir()

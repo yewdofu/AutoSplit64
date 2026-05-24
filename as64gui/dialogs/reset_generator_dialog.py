@@ -10,7 +10,7 @@ from ..constants import (
 )
 from as64core import resource_utils
 
-from as64core.game_capture import GameCapture
+from as64core.game_capture import GameCapture, DeviceCapture
 from as64core.image_utils import is_black
 from as64core import (
     GAME_JP,
@@ -28,7 +28,7 @@ class ResetGeneratorHelpDialog(QtWidgets.QDialog):
     def __init__(self, parent=None):
         super().__init__(parent, QtCore.Qt.WindowSystemMenuHint | QtCore.Qt.WindowCloseButtonHint)
         self.window_title = "Reset Template Generator Help"
-        self.setWindowIcon(QtGui.QIcon(resource_utils.base_path(ICON_PATH)))
+        self.setWindowIcon(QtGui.QIcon(resource_utils.resource_path(ICON_PATH)))
 
         # Layouts
         self.menu_layout = QtWidgets.QVBoxLayout()
@@ -77,7 +77,7 @@ class ResetGeneratorDialog(QtWidgets.QDialog):
     def __init__(self, parent=None):
         super().__init__(parent, QtCore.Qt.WindowSystemMenuHint | QtCore.Qt.WindowCloseButtonHint)
         self.window_title = "Reset Template Generator"
-        self.setWindowIcon(QtGui.QIcon(resource_utils.base_path(ICON_PATH)))
+        self.setWindowIcon(QtGui.QIcon(resource_utils.resource_path(ICON_PATH)))
 
         # Layouts
         self.menu_layout = QtWidgets.QGridLayout()
@@ -116,8 +116,8 @@ class ResetGeneratorDialog(QtWidgets.QDialog):
         self.def_1_px.setFixedSize(251, 137)
         self.def_2_px.setFixedSize(251, 137)
 
-        self.def_1_px.setPixmap(QtGui.QPixmap(ResetGeneratorDialog.TEMPLATE_DIR + "default_reset_one.jpg"))
-        self.def_2_px.setPixmap(QtGui.QPixmap(ResetGeneratorDialog.TEMPLATE_DIR + "default_reset_two.jpg"))
+        self.def_1_px.setPixmap(QtGui.QPixmap(resource_utils.resource_path(ResetGeneratorDialog.TEMPLATE_DIR + "default_reset_one.jpg")))
+        self.def_2_px.setPixmap(QtGui.QPixmap(resource_utils.resource_path(ResetGeneratorDialog.TEMPLATE_DIR + "default_reset_two.jpg")))
 
         self.button_layout.addItem(
             QtWidgets.QSpacerItem(10, 10, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum))
@@ -188,43 +188,47 @@ class ResetGeneratorDialog(QtWidgets.QDialog):
         self._reset_generator.start()
 
     def apply_clicked(self):
+        bp = resource_utils.base_path
         try:
-            os.remove(ResetGeneratorDialog.TEMPLATE_DIR + "generated_reset_one.jpg")
+            os.remove(bp(ResetGeneratorDialog.TEMPLATE_DIR + "generated_reset_one.jpg"))
         except FileNotFoundError:
             pass
 
         try:
-            os.remove(ResetGeneratorDialog.TEMPLATE_DIR + "generated_reset_two.jpg")
+            os.remove(bp(ResetGeneratorDialog.TEMPLATE_DIR + "generated_reset_two.jpg"))
         except FileNotFoundError:
             pass
 
         try:
-            os.rename(ResetGeneratorDialog.TEMPLATE_DIR + "generated_temp_" + str(self.gen_1_sb.value()) + ".jpg",  ResetGeneratorDialog.TEMPLATE_DIR + "generated_reset_one.jpg")
+            os.rename(bp(ResetGeneratorDialog.TEMPLATE_DIR + "generated_temp_" + str(self.gen_1_sb.value()) + ".jpg"),
+                      bp(ResetGeneratorDialog.TEMPLATE_DIR + "generated_reset_one.jpg"))
         except FileNotFoundError:
             pass
 
         try:
-            os.rename(ResetGeneratorDialog.TEMPLATE_DIR + "generated_temp_" + str(self.gen_2_sb.value()) + ".jpg",  ResetGeneratorDialog.TEMPLATE_DIR + "generated_reset_two.jpg")
+            os.rename(bp(ResetGeneratorDialog.TEMPLATE_DIR + "generated_temp_" + str(self.gen_2_sb.value()) + ".jpg"),
+                      bp(ResetGeneratorDialog.TEMPLATE_DIR + "generated_reset_two.jpg"))
         except FileNotFoundError:
             pass
 
         for i in range(ResetGenerator.CAPTURE_COUNT + 1):
             try:
-                os.remove(ResetGeneratorDialog.TEMPLATE_DIR + "generated_temp_" + str(i) + ".jpg")
+                os.remove(bp(ResetGeneratorDialog.TEMPLATE_DIR + "generated_temp_" + str(i) + ".jpg"))
             except FileNotFoundError:
                 pass
 
-        config.set_key("advanced", "reset_frame_one", ResetGeneratorDialog.TEMPLATE_DIR + "generated_reset_one.jpg")
-        config.set_key("advanced", "reset_frame_two", ResetGeneratorDialog.TEMPLATE_DIR + "generated_reset_two.jpg")
+        config.set_key("advanced", "reset_frame_one", bp(ResetGeneratorDialog.TEMPLATE_DIR + "generated_reset_one.jpg"))
+        config.set_key("advanced", "reset_frame_two", bp(ResetGeneratorDialog.TEMPLATE_DIR + "generated_reset_two.jpg"))
         config.save_config()
 
         self._reset_generator.stop()
         self.hide()
 
     def cancel_clicked(self):
+        bp = resource_utils.base_path
         for i in range(ResetGenerator.CAPTURE_COUNT):
             try:
-                os.remove(ResetGeneratorDialog.TEMPLATE_DIR + "generated_temp_" + str(i) + ".jpg")
+                os.remove(bp(ResetGeneratorDialog.TEMPLATE_DIR + "generated_temp_" + str(i) + ".jpg"))
             except FileNotFoundError:
                 pass
 
@@ -232,8 +236,9 @@ class ResetGeneratorDialog(QtWidgets.QDialog):
         self.hide()
 
     def on_generate(self):
-        self.gen_1_px.setPixmap(QtGui.QPixmap(ResetGeneratorDialog.TEMPLATE_DIR + "generated_temp_2.jpg").scaledToWidth(251).scaledToHeight(137))
-        self.gen_2_px.setPixmap(QtGui.QPixmap(ResetGeneratorDialog.TEMPLATE_DIR + "generated_temp_3.jpg").scaledToWidth(251).scaledToHeight(137))
+        bp = resource_utils.base_path
+        self.gen_1_px.setPixmap(QtGui.QPixmap(bp(ResetGeneratorDialog.TEMPLATE_DIR + "generated_temp_2.jpg")).scaledToWidth(251).scaledToHeight(137))
+        self.gen_2_px.setPixmap(QtGui.QPixmap(bp(ResetGeneratorDialog.TEMPLATE_DIR + "generated_temp_3.jpg")).scaledToWidth(251).scaledToHeight(137))
         self.gen_1_sb.setValue(2)
         self.gen_2_sb.setValue(3)
         self.generate_btn.setText("Generate")
@@ -243,15 +248,16 @@ class ResetGeneratorDialog(QtWidgets.QDialog):
         self.gen_2_sb.setEnabled(True)
 
     def gen_1_changed(self, value):
-        self.gen_1_px.setPixmap(QtGui.QPixmap(ResetGeneratorDialog.TEMPLATE_DIR + "generated_temp_" + str(value) + ".jpg").scaledToWidth(251).scaledToHeight(137))
+        self.gen_1_px.setPixmap(QtGui.QPixmap(resource_utils.base_path(ResetGeneratorDialog.TEMPLATE_DIR + "generated_temp_" + str(value) + ".jpg")).scaledToWidth(251).scaledToHeight(137))
 
     def gen_2_changed(self, value):
-        self.gen_2_px.setPixmap(QtGui.QPixmap(ResetGeneratorDialog.TEMPLATE_DIR + "generated_temp_" + str(value) + ".jpg").scaledToWidth(251).scaledToHeight(137))
+        self.gen_2_px.setPixmap(QtGui.QPixmap(resource_utils.base_path(ResetGeneratorDialog.TEMPLATE_DIR + "generated_temp_" + str(value) + ".jpg")).scaledToWidth(251).scaledToHeight(137))
 
     def closeEvent(self, event):
+        bp = resource_utils.base_path
         for i in range(ResetGenerator.CAPTURE_COUNT):
             try:
-                os.remove(ResetGeneratorDialog.TEMPLATE_DIR + "generated_temp_" + str(i) + ".jpg")
+                os.remove(bp(ResetGeneratorDialog.TEMPLATE_DIR + "generated_temp_" + str(i) + ".jpg"))
             except FileNotFoundError:
                 pass
 
@@ -287,7 +293,12 @@ class ResetGenerator(QtCore.QThread):
     def __init__(self):
         super().__init__()
         self._running = False
-        self._game_capture = GameCapture(config.get("game", "process_name"), config.get("game", "game_region"), GAME_JP)
+        if config.get("game", "capture_source") == "device":
+            self._game_capture = DeviceCapture(config.get("game", "device_index"), config.get("game", "game_region"), GAME_JP)
+            self._capture_name = f"Device {config.get('game', 'device_index')}"
+        else:
+            self._game_capture = GameCapture(config.get("game", "process_name"), config.get("game", "game_region"), GAME_JP)
+            self._capture_name = config.get("game", "process_name")
 
     def run(self):
         self._running = True
@@ -301,7 +312,7 @@ class ResetGenerator(QtCore.QThread):
             try:
                 self._game_capture.capture()
             except:
-                self.error.emit("Unable to capture " + config.get("game", "process_name"))
+                self.error.emit("Unable to capture " + self._capture_name)
                 self.stop()
                 break
 
@@ -325,8 +336,9 @@ class ResetGenerator(QtCore.QThread):
             except ValueError:
                 pass
 
+        os.makedirs(resource_utils.base_path(ResetGeneratorDialog.TEMPLATE_DIR), exist_ok=True)
         for i, frame in enumerate(generated_frames):
-            cv2.imwrite(ResetGeneratorDialog.TEMPLATE_DIR + "generated_temp_" + str(i + 1) + ".jpg", frame)
+            cv2.imwrite(resource_utils.base_path(ResetGeneratorDialog.TEMPLATE_DIR + "generated_temp_" + str(i + 1) + ".jpg"), frame)
 
         self.generated.emit()
 

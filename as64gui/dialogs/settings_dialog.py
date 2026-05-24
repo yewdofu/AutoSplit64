@@ -2,6 +2,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 
 from as64core import resource_utils
 from as64core import config
+from as64core.game_capture import get_available_devices
 from as64gui.widgets import HLine
 from as64gui.constants import (
     ICON_PATH
@@ -31,6 +32,7 @@ class SettingsDialog(QtWidgets.QDialog):
         self.stacked_widget = QtWidgets.QStackedWidget()
 
         self.general_menu = GeneralMenu()
+        self.capture_menu = CaptureMenu()
         self.connection_menu = ConnectionMenu()
         self.thresholds_menu = ThresholdsMenu()
         self.colour_thresholds_menu = ColourThresholdsMenu()
@@ -52,10 +54,11 @@ class SettingsDialog(QtWidgets.QDialog):
         # Configure Widgets
         self.menu_list.setMinimumWidth(80)
         self.menu_list.setSizePolicy(QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Minimum)
-        self.menu_list.addItems(["General", "Connection", "Thresholds", "Colour Thresholds", "Error Correction", "Advanced"])
+        self.menu_list.addItems(["General", "Capture", "Connection", "Thresholds", "Colour Thresholds", "Error Correction", "Advanced"])
         self.menu_list.setSpacing(8)
 
         self.stacked_widget.addWidget(self.general_menu)
+        self.stacked_widget.addWidget(self.capture_menu)
         self.stacked_widget.addWidget(self.connection_menu)
         self.stacked_widget.addWidget(self.thresholds_menu)
         self.stacked_widget.addWidget(self.colour_thresholds_menu)
@@ -83,6 +86,7 @@ class SettingsDialog(QtWidgets.QDialog):
 
     def show(self):
         self.general_menu.load_preferences()
+        self.capture_menu.load_preferences()
         self.connection_menu.load_preferences()
         self.thresholds_menu.load_preferences()
         self.colour_thresholds_menu.load_preferences()
@@ -94,6 +98,7 @@ class SettingsDialog(QtWidgets.QDialog):
     def apply_clicked(self):
         # Update and save preferences
         self.general_menu.update_preferences()
+        self.capture_menu.update_preferences()
         self.connection_menu.update_preferences()
         self.thresholds_menu.update_preferences()
         self.colour_thresholds_menu.update_preferences()
@@ -967,3 +972,75 @@ class AdvancedMenu(BaseMenu):
 
         if file_name:
             self.model_le.setText(file_name)
+
+
+class CaptureMenu(BaseMenu):
+    def __init__(self, parent=None):
+        super().__init__(title="Capture", parent=parent)
+
+        self.menu_layout = QtWidgets.QGridLayout()
+
+        self.source_lb = QtWidgets.QLabel("Capture Source:")
+        self.source_combo = QtWidgets.QComboBox()
+        self.source_combo.addItems(["Window", "Video Device"])
+
+        self.device_lb = QtWidgets.QLabel("Device:")
+        self.device_combo = QtWidgets.QComboBox()
+        self.device_refresh_btn = QtWidgets.QPushButton("Refresh")
+
+        self.init()
+
+    def init(self):
+        self.set_menu_layout(self.menu_layout)
+
+        self.source_lb.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+        self.source_lb.setMaximumWidth(120)
+        self.source_combo.setMaximumWidth(120)
+
+        self.device_lb.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+        self.device_lb.setMaximumWidth(120)
+        self.device_combo.setMinimumWidth(120)
+        self.device_refresh_btn.setMaximumWidth(70)
+
+        self.menu_layout.addWidget(self.source_lb, 0, 0)
+        self.menu_layout.addWidget(self.source_combo, 0, 1)
+        self.menu_layout.addItem(QtWidgets.QSpacerItem(10, 10, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Minimum), 1, 0)
+        self.menu_layout.addWidget(HLine(), 2, 0, 1, 3)
+        self.menu_layout.addItem(QtWidgets.QSpacerItem(10, 10, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Minimum), 3, 0)
+        self.menu_layout.addWidget(self.device_lb, 4, 0)
+        self.menu_layout.addWidget(self.device_combo, 4, 1)
+        self.menu_layout.addWidget(self.device_refresh_btn, 4, 2)
+        self.menu_layout.addItem(QtWidgets.QSpacerItem(20, 20, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding), 30, 0)
+
+        self.source_combo.currentIndexChanged.connect(self._on_source_changed)
+        self.device_refresh_btn.clicked.connect(self._refresh_devices)
+
+        self.load_preferences()
+
+    def _on_source_changed(self, index):
+        is_device = (index == 1)
+        self.device_lb.setVisible(is_device)
+        self.device_combo.setVisible(is_device)
+        self.device_refresh_btn.setVisible(is_device)
+
+    def _refresh_devices(self):
+        current_index = config.get("game", "device_index")
+        self.device_combo.clear()
+        for i, name in get_available_devices():
+            self.device_combo.addItem(name, i)
+        idx = self.device_combo.findData(current_index)
+        if idx >= 0:
+            self.device_combo.setCurrentIndex(idx)
+
+    def load_preferences(self):
+        source = config.get("game", "capture_source")
+        self.source_combo.setCurrentIndex(0 if source == "window" else 1)
+        self._on_source_changed(self.source_combo.currentIndex())
+        if self.source_combo.currentIndex() == 1:
+            self._refresh_devices()
+
+    def update_preferences(self):
+        is_device = self.source_combo.currentIndex() == 1
+        config.set_key("game", "capture_source", "device" if is_device else "window")
+        if is_device and self.device_combo.currentData() is not None:
+            config.set_key("game", "device_index", self.device_combo.currentData())

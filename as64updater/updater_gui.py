@@ -1,6 +1,6 @@
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from as64core.resource_utils import base_path
+from as64core.resource_utils import resource_path
 
 
 class UpdaterGUI(QtWidgets.QMainWindow):
@@ -17,7 +17,7 @@ class UpdaterGUI(QtWidgets.QMainWindow):
         self.setAttribute(QtCore.Qt.WA_DeleteOnClose, True)
         self.width = 268
         self.height = 100
-        self.setWindowIcon(QtGui.QIcon(base_path("resources/gui/icons/icon.png")))
+        self.setWindowIcon(QtGui.QIcon(resource_path("resources/gui/icons/icon.png")))
 
         #
         self._version = None

@@ -1,6 +1,8 @@
 import json
 import copy
 
+from as64core.resource_utils import resource_path, base_path
+
 
 _config = {}
 _defaults = None
@@ -114,7 +116,7 @@ def flush_rollback():
 def load_config():
     global _config
     try:
-        with open(_CONFIG_FILE_NAME) as file:
+        with open(base_path(_CONFIG_FILE_NAME)) as file:
             data = json.load(file)
             _config = data
     except FileNotFoundError:
@@ -123,7 +125,7 @@ def load_config():
 
 def load_defaults():
     global _defaults
-    with open(_DEFAULTS_FILE_NAME) as file:
+    with open(resource_path(_DEFAULTS_FILE_NAME)) as file:
         data = json.load(file)
         _defaults = data
 
@@ -132,7 +134,7 @@ def save_config():
     global _config
 
     # Save config.ini file
-    with open(_CONFIG_FILE_NAME, 'w') as file:
+    with open(base_path(_CONFIG_FILE_NAME), 'w') as file:
         json.dump(_config, file, indent=4)
 
     # Remove rollback

@@ -32,7 +32,7 @@ def load(file_path):
     try:
         with open(file_path) as route_data:
             data = route_data.read()
-            new_data = data[:1] + '"file_path": ' + '"' + file_path + '",' + data[1:]
+            new_data = data[:1] + '"file_path": ' + json.dumps(file_path) + ',' + data[1:]
             decoded_route = RouteDecoder().decode(new_data)
             return decoded_route
     except FileNotFoundError:
