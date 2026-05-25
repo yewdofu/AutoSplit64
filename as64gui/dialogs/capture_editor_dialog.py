@@ -183,8 +183,7 @@ class CaptureEditor(QtWidgets.QDialog):
 
     def apply_clicked(self):
         if not self._is_correct_ratio():
-            if self.display_warning("A non 4:3 game ratio was detected, you may experience sub-optimal performance."):
-                return
+            self.display_info("The selected region is not 4:3. It will be automatically corrected at runtime.")
 
         if not self._is_minimum_size():
             if self.display_warning("Game width and height are below the recommended minimum (614, 448). You may experience sub-optimal performance."):
@@ -282,6 +281,13 @@ class CaptureEditor(QtWidgets.QDialog):
     def closeEvent(self, e):
         config.rollback()
         super().closeEvent(e)
+
+    def display_info(self, message, title="Info"):
+        msg = QtWidgets.QMessageBox(self)
+        msg.setIcon(QtWidgets.QMessageBox.Information)
+        msg.setWindowTitle(title)
+        msg.setText(message)
+        msg.exec_()
 
     def display_warning(self, message, title="Warning"):
         ignore_btn = QtWidgets.QPushButton(r'Ignore Warning and Apply')

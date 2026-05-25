@@ -33,18 +33,27 @@ class _BaseCaptureSource:
         self._version = version
         self._regions: dict = {}
         self._window_image = None
+        self._game_image = None
         self._region_images: dict = {}
+
+        # Target size is always 4:3; height is preserved and width is adjusted
+        gh = game_region[3]
+        target_w = int(round(gh * 4 / 3))
+        self._target_size = (target_w, gh)
+
         self._add_default_regions()
 
     def _add_default_regions(self):
+        target_w, target_h = self._target_size
+
         def calc_ratio(c, b):
             return [c[0] / b[0], c[1] / b[1], c[2] / b[0], c[3] / b[1]]
 
         def calc_region(ratio):
-            return [int(round(self._game_region[0] + (self._game_region[2] * ratio[0]))),
-                    int(round(self._game_region[1] + (self._game_region[3] * ratio[1]))),
-                    int(round(self._game_region[2] * ratio[2])),
-                    int(round(self._game_region[3] * ratio[3]))]
+            return [int(round(target_w * ratio[0])),
+                    int(round(target_h * ratio[1])),
+                    int(round(target_w * ratio[2])),
+                    int(round(target_h * ratio[3]))]
 
         if self._version == GAME_US:
             self._regions[STAR_REGION] = calc_region(calc_ratio(STAR_REGION_US_RATIO, GAME_REGION_BASE))
@@ -61,6 +70,14 @@ class _BaseCaptureSource:
         self._regions[POWER_REGION] = calc_region(calc_ratio(POWER_REGION_RATIO, GAME_REGION_BASE))
         self._regions[XCAM_REGION] = calc_region(calc_ratio(XCAM_REGION_RATIO, GAME_REGION_BASE))
 
+    def _extract_game_image(self):
+        x, y, w, h = self._game_region
+        game_img = self._window_image[y:y + h, x:x + w]
+        target_w, target_h = self._target_size
+        if game_img.shape[1] != target_w or game_img.shape[0] != target_h:
+            game_img = cv2.resize(game_img, (target_w, target_h))
+        self._game_image = game_img
+
     def is_valid(self) -> bool:
         raise NotImplementedError
 
@@ -71,7 +88,7 @@ class _BaseCaptureSource:
         raise NotImplementedError
 
     def get_region(self, region):
-        if self._window_image is None:
+        if self._game_image is None:
             self.capture()
 
         try:
@@ -90,7 +107,7 @@ class _BaseCaptureSource:
             return None
 
     def _crop(self, x, y, width, height):
-        return self._window_image[y:y + height, x:x + width]
+        return self._game_image[y:y + height, x:x + width]
 
 
 class GameCapture(_BaseCaptureSource):
@@ -103,6 +120,7 @@ class GameCapture(_BaseCaptureSource):
 
     def capture(self) -> None:
         self._window_image = capture_window.capture(self._hwnd)
+        self._extract_game_image()
         self._region_images = {}
 
     def get_capture_size(self):
@@ -121,6 +139,7 @@ class DeviceCapture(_BaseCaptureSource):
         ret, frame = self._cap.read()
         if ret:
             self._window_image = frame
+            self._extract_game_image()
         self._region_images = {}
 
     def get_capture_size(self):
