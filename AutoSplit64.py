@@ -2,6 +2,7 @@ import sys
 from threading import Thread
 import logging
 
+import cv2
 import onnxruntime  # must be imported in main thread before worker threads start
 
 from PyQt5 import QtCore, QtWidgets, QtGui
@@ -22,9 +23,12 @@ from as64processes.final import *
 class AutoSplit64(QtCore.QObject):
     error = QtCore.pyqtSignal(str)
     update_found = QtCore.pyqtSignal(dict)
+    capture_waiting = QtCore.pyqtSignal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent=parent)
+
+        self._device_retrying = False
 
         # Initialize GUI
         self.app = App()
@@ -41,6 +45,7 @@ class AutoSplit64(QtCore.QObject):
         # self.app.ignore_update.connect(lambda: self._updater.set_ignore_update(True))
         # self.app.install_update.connect(self._updater.install_update)
         self.error.connect(self.app.display_error_message)
+        self.capture_waiting.connect(self.app.set_capture_waiting)
         # self.update_found.connect(self.app.update_found)
 
     #     # Check for updates
@@ -129,14 +134,33 @@ class AutoSplit64(QtCore.QObject):
         self.app.set_started(True)
 
     def stop(self):
+        self._device_retrying = False
         as64core.stop()
 
     def on_update(self, index, star_count, split_star):
         self.app.update_display(index, star_count, split_star)
 
     def on_error(self, error):
-        self.error.emit(error)
-        self.app.set_started(False)
+        if config.get("game", "capture_source") == "device" and not self._device_retrying:
+            self._device_retrying = True
+            self.capture_waiting.emit(True)
+            Thread(target=self._retry_device_capture, daemon=True).start()
+        else:
+            self.error.emit(error)
+            self.app.set_started(False)
+
+    def _retry_device_capture(self):
+        import time
+        device_index = config.get("game", "device_index")
+        while self._device_retrying:
+            time.sleep(1)
+            cap = cv2.VideoCapture(device_index, cv2.CAP_DSHOW)
+            if cap.isOpened():
+                cap.release()
+                self._device_retrying = False
+                self.capture_waiting.emit(False)
+                self.app.start.emit()
+                return
 
     def exit(self):
         self.stop()

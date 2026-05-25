@@ -123,6 +123,7 @@ class App(QtWidgets.QMainWindow):
         self.start_btn.add_state("start", self.start_pixmap, "Start")
         self.start_btn.add_state("stop", self.stop_pixmap, "Stop")
         self.start_btn.add_state("init", self.init_pixmap, "Initializing..")
+        self.start_btn.add_state("waiting", self.init_pixmap, "Capture Wait")
         self.start_btn.set_state("start")
 
         self.split_list.setFont(self.button_font)
@@ -174,6 +175,16 @@ class App(QtWidgets.QMainWindow):
             self.start_btn.set_state("start")
             # TODO: Set split list index to 0?
 
+        self.start_btn.setEnabled(True)
+        self.start_btn.repaint()
+
+    def set_capture_waiting(self, waiting):
+        if waiting:
+            self.start_btn.set_state("waiting")
+            self.start_btn.setEnabled(False)
+        else:
+            self.start_btn.set_state("start")
+            self.start_btn.setEnabled(True)
         self.start_btn.repaint()
 
     def open_route(self):

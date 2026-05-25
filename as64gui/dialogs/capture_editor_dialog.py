@@ -133,6 +133,7 @@ class CaptureEditor(QtWidgets.QDialog):
         self.cancel_btn.clicked.connect(self.cancel_clicked)
         self.game_region_panel.updated.connect(self.on_game_region_panel_update)
         self.process_combo.currentIndexChanged.connect(self.refresh_graphics_scene)
+        self.device_combo.currentIndexChanged.connect(self.refresh_graphics_scene)
         self.device_refresh_btn.clicked.connect(self._refresh_device_list)
 
         self._device_worker = None
@@ -171,13 +172,17 @@ class CaptureEditor(QtWidgets.QDialog):
     def _on_devices_found(self, devices):
         saved_index = config.get("game", "device_index")
         self._device_list = devices
+        self.device_combo.blockSignals(True)
         for i, name in devices:
             self.device_combo.addItem(name, i)
         idx = self.device_combo.findData(saved_index)
         if idx >= 0:
             self.device_combo.setCurrentIndex(idx)
+        self.device_combo.blockSignals(False)
         self.device_refresh_btn.setEnabled(True)
         self.device_refresh_btn.setText("Refresh")
+        if self._is_device_mode():
+            self.refresh_graphics_scene()
 
     def show(self):
         game_region = config.get('game', 'game_region')

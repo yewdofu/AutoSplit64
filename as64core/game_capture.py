@@ -89,7 +89,13 @@ class _BaseCaptureSource:
 
     def get_region(self, region):
         if self._game_image is None:
-            self.capture()
+            try:
+                self.capture()
+            except Exception:
+                return None
+
+        if self._game_image is None:
+            return None
 
         try:
             return self._region_images[region]
@@ -137,10 +143,12 @@ class DeviceCapture(_BaseCaptureSource):
 
     def capture(self) -> None:
         ret, frame = self._cap.read()
+        self._region_images = {}
         if ret:
             self._window_image = frame
             self._extract_game_image()
-        self._region_images = {}
+        else:
+            raise IOError("Failed to read frame from capture device")
 
     def get_capture_size(self):
         return [int(self._cap.get(cv2.CAP_PROP_FRAME_WIDTH)),

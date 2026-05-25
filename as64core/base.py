@@ -175,13 +175,19 @@ class Base(Thread):
 
     def validity_check(self):
         if not self._game_capture.is_valid():
-            self._error_occurred("Could not find " + config.get("game", "process_name"))
+            if config.get("game", "capture_source") == "device":
+                self._error_occurred("Could not open capture device (index " + str(config.get("game", "device_index")) + ")")
+            else:
+                self._error_occurred("Could not find " + config.get("game", "process_name"))
             return False
 
         try:
             self._game_capture.capture()
         except:
-            self._error_occurred("Could not capture " + config.get("game", "process_name"))
+            if config.get("game", "capture_source") == "device":
+                self._error_occurred("Could not capture from device (index " + str(config.get("game", "device_index")) + ")")
+            else:
+                self._error_occurred("Could not capture " + config.get("game", "process_name"))
             return False
 
         current_capture_size = self._game_capture.get_capture_size()
@@ -226,7 +232,10 @@ class Base(Thread):
                 try:
                     self._game_capture.capture()
                 except:
-                    self._error_occurred("Unable to capture " + config.get("game", "process_name"))
+                    if config.get("game", "capture_source") == "device":
+                        self._error_occurred("Unable to capture from device (index " + str(config.get("game", "device_index")) + ")")
+                    else:
+                        self._error_occurred("Unable to capture " + config.get("game", "process_name"))
 
                 ls_index = max(livesplit.split_index(self._ls_socket), 0)
                 if ls_index != self.split_index():
