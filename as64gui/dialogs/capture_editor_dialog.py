@@ -17,6 +17,13 @@ CAPTURE_SOURCE_WINDOW = "window"
 CAPTURE_SOURCE_DEVICE = "device"
 
 
+class _DeviceEnumerationWorker(QtCore.QThread):
+    devices_found = QtCore.pyqtSignal(list)
+
+    def run(self):
+        self.devices_found.emit(get_available_devices())
+
+
 class CaptureEditor(QtWidgets.QDialog):
 
     applied = QtCore.pyqtSignal()
@@ -90,7 +97,7 @@ class CaptureEditor(QtWidgets.QDialog):
         self.source_combo.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
         self.process_combo.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
         self.device_combo.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
-        self.device_refresh_btn.setMaximumWidth(60)
+        self.device_refresh_btn.setMaximumWidth(80)
 
         self._refresh_process_list()
 
@@ -128,6 +135,8 @@ class CaptureEditor(QtWidgets.QDialog):
         self.process_combo.currentIndexChanged.connect(self.refresh_graphics_scene)
         self.device_refresh_btn.clicked.connect(self._refresh_device_list)
 
+        self._device_worker = None
+
         self.refresh_graphics_scene()
 
     def _is_device_mode(self):
@@ -140,6 +149,8 @@ class CaptureEditor(QtWidgets.QDialog):
         self.device_lb.setVisible(is_device)
         self.device_combo.setVisible(is_device)
         self.device_refresh_btn.setVisible(is_device)
+        if is_device and self.device_combo.count() == 0:
+            self._refresh_device_list()
         self.refresh_graphics_scene()
 
     def _refresh_process_list(self):
@@ -148,14 +159,25 @@ class CaptureEditor(QtWidgets.QDialog):
         self.process_combo.addItems([proc[0].name() for proc in self._process_list])
 
     def _refresh_device_list(self):
-        saved_index = config.get("game", "device_index")
+        if self._device_worker is not None and self._device_worker.isRunning():
+            return
+        self.device_refresh_btn.setEnabled(False)
+        self.device_refresh_btn.setText("Searching...")
         self.device_combo.clear()
-        self._device_list = get_available_devices()
-        for i, name in self._device_list:
+        self._device_worker = _DeviceEnumerationWorker(self)
+        self._device_worker.devices_found.connect(self._on_devices_found)
+        self._device_worker.start()
+
+    def _on_devices_found(self, devices):
+        saved_index = config.get("game", "device_index")
+        self._device_list = devices
+        for i, name in devices:
             self.device_combo.addItem(name, i)
         idx = self.device_combo.findData(saved_index)
         if idx >= 0:
             self.device_combo.setCurrentIndex(idx)
+        self.device_refresh_btn.setEnabled(True)
+        self.device_refresh_btn.setText("Refresh")
 
     def show(self):
         game_region = config.get('game', 'game_region')
@@ -165,6 +187,7 @@ class CaptureEditor(QtWidgets.QDialog):
 
         # Set source from config
         source = config.get("game", "capture_source")
+        self.device_combo.clear()
         self.source_combo.setCurrentIndex(0 if source == CAPTURE_SOURCE_WINDOW else 1)
         self._on_source_changed(self.source_combo.currentIndex())
 
@@ -174,8 +197,6 @@ class CaptureEditor(QtWidgets.QDialog):
             for i in range(len(self._process_list)):
                 if self._process_list[i][0].name() == p_name:
                     self.process_combo.setCurrentIndex(i)
-        else:
-            self._refresh_device_list()
 
         self.refresh_graphics_scene()
         config.create_rollback()

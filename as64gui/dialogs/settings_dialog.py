@@ -9,6 +9,13 @@ from as64gui.constants import (
 )
 
 
+class _DeviceEnumerationWorker(QtCore.QThread):
+    devices_found = QtCore.pyqtSignal(list)
+
+    def run(self):
+        self.devices_found.emit(get_available_devices())
+
+
 class SettingsDialog(QtWidgets.QDialog):
     applied = QtCore.pyqtSignal()
 
@@ -1000,7 +1007,7 @@ class CaptureMenu(BaseMenu):
         self.device_lb.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
         self.device_lb.setMaximumWidth(120)
         self.device_combo.setMinimumWidth(120)
-        self.device_refresh_btn.setMaximumWidth(70)
+        self.device_refresh_btn.setMaximumWidth(85)
 
         self.menu_layout.addWidget(self.source_lb, 0, 0)
         self.menu_layout.addWidget(self.source_combo, 0, 1)
@@ -1012,6 +1019,8 @@ class CaptureMenu(BaseMenu):
         self.menu_layout.addWidget(self.device_refresh_btn, 4, 2)
         self.menu_layout.addItem(QtWidgets.QSpacerItem(20, 20, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding), 30, 0)
 
+        self._device_worker = None
+
         self.source_combo.currentIndexChanged.connect(self._on_source_changed)
         self.device_refresh_btn.clicked.connect(self._refresh_devices)
 
@@ -1022,22 +1031,34 @@ class CaptureMenu(BaseMenu):
         self.device_lb.setVisible(is_device)
         self.device_combo.setVisible(is_device)
         self.device_refresh_btn.setVisible(is_device)
+        if is_device and self.device_combo.count() == 0:
+            self._refresh_devices()
 
     def _refresh_devices(self):
-        current_index = config.get("game", "device_index")
+        if self._device_worker is not None and self._device_worker.isRunning():
+            return
+        self.device_refresh_btn.setEnabled(False)
+        self.device_refresh_btn.setText("Searching...")
         self.device_combo.clear()
-        for i, name in get_available_devices():
+        self._device_worker = _DeviceEnumerationWorker(self)
+        self._device_worker.devices_found.connect(self._on_devices_found)
+        self._device_worker.start()
+
+    def _on_devices_found(self, devices):
+        current_index = config.get("game", "device_index")
+        for i, name in devices:
             self.device_combo.addItem(name, i)
         idx = self.device_combo.findData(current_index)
         if idx >= 0:
             self.device_combo.setCurrentIndex(idx)
+        self.device_refresh_btn.setEnabled(True)
+        self.device_refresh_btn.setText("Refresh")
 
     def load_preferences(self):
         source = config.get("game", "capture_source")
+        self.device_combo.clear()
         self.source_combo.setCurrentIndex(0 if source == "window" else 1)
         self._on_source_changed(self.source_combo.currentIndex())
-        if self.source_combo.currentIndex() == 1:
-            self._refresh_devices()
 
     def update_preferences(self):
         is_device = self.source_combo.currentIndex() == 1
