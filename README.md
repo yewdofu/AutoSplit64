@@ -7,6 +7,7 @@
 
 ## Table of Contents
 
+- [About This Fork](#about-this-fork)
 - [Introduction](#introduction)
 - [Release](#release)
 - [Features](#features)
@@ -20,6 +21,12 @@
 - [Contact](#contact)
 - [Donate](#donate)
 - [Author](#author)
+
+## About This Fork
+
+This is a fork of [Synozure's AutoSplit64](https://github.com/kainev/AutoSplit64), maintained to improve and extend the **legacy version** (v0.2.x / v0.3.x).
+
+The original project has since moved to a new architecture. This fork focuses on keeping the legacy codebase functional and polished — fixing bugs, improving usability, and adding quality-of-life features — without breaking compatibility with existing routes and workflows.
 
 ## Introduction
 
