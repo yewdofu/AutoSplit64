@@ -1,6 +1,6 @@
 [project]
 name = "autosplit64"
-version = "0.3.1"
+version = "0.3.2"
 description = "Automated LiveSplit for Super Mario 64 speedruns"
 requires-python = ">=3.11"
 dependencies = [
