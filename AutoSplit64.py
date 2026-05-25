@@ -128,14 +128,16 @@ class AutoSplit64(QtCore.QObject):
 
         as64core.set_update_listener(self.on_update)
         as64core.set_error_listener(self.on_error)
+        as64core.set_started_listener(self.on_started)
 
         as64core.start()
-
-        self.app.set_started(True)
 
     def stop(self):
         self._device_retrying = False
         as64core.stop()
+
+    def on_started(self):
+        self.app.set_started(True)
 
     def on_update(self, index, star_count, split_star):
         self.app.update_display(index, star_count, split_star)
@@ -156,11 +158,14 @@ class AutoSplit64(QtCore.QObject):
             time.sleep(1)
             cap = cv2.VideoCapture(device_index, cv2.CAP_DSHOW)
             if cap.isOpened():
+                ret, _ = cap.read()
                 cap.release()
-                self._device_retrying = False
-                self.capture_waiting.emit(False)
-                self.app.start.emit()
-                return
+                if ret:
+                    time.sleep(0.5)
+                    self._device_retrying = False
+                    self.capture_waiting.emit(False)
+                    self.app.start.emit()
+                    return
 
     def exit(self):
         self.stop()

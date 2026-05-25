@@ -207,5 +207,9 @@ def set_error_listener(listener) -> None:
     pass
 
 
+def set_started_listener(listener) -> None:
+    pass
+
+
 def force_update() -> None:
     pass

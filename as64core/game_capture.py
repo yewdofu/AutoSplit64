@@ -136,6 +136,7 @@ class GameCapture(_BaseCaptureSource):
 class DeviceCapture(_BaseCaptureSource):
     def __init__(self, device_index, game_region, version):
         self._cap = cv2.VideoCapture(device_index, cv2.CAP_DSHOW)
+        self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         super().__init__(game_region, version)
 
     def is_valid(self) -> bool:
@@ -161,18 +162,13 @@ class DeviceCapture(_BaseCaptureSource):
 def get_available_devices():
     """Returns list of (index, name) for available video capture devices.
 
-    Uses pygrabber to get DirectShow device names, falls back to index-only on error.
+    Uses pygrabber to get DirectShow device names without opening devices,
+    to avoid interfering with any active capture connections.
     """
     try:
         from pygrabber.dshow_graph import FilterGraph
         names = FilterGraph().get_input_devices()
-        devices = []
-        for i, name in enumerate(names):
-            cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
-            if cap.isOpened():
-                devices.append((i, name))
-                cap.release()
-        return devices
+        return list(enumerate(names))
     except Exception:
         devices = []
         for i in range(10):

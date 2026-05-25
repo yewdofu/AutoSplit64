@@ -111,6 +111,7 @@ class Base(Thread):
         # Callback Listeners
         self._update_listener = None
         self._error_listener = None
+        self._started_listener = None
 
         # Load configuration
         self._black_threshold = config.get("thresholds", "black_threshold")
@@ -162,6 +163,7 @@ class Base(Thread):
         as64.register_split_processor = self.register_split_processor
         as64.set_update_listener = self.set_update_listener
         as64.set_error_listener = self.set_error_listener
+        as64.set_started_listener = self.set_started_listener
         as64.force_update = self._update_occurred
         as64.split = self.split
         as64.reset = self.reset
@@ -189,6 +191,22 @@ class Base(Thread):
             else:
                 self._error_occurred("Could not capture " + config.get("game", "process_name"))
             return False
+
+        if config.get("game", "capture_source") == "device":
+            deadline = time.time() + 2.0
+            while self._game_capture.get_region(STAR_REGION) is None:
+                if time.time() > deadline:
+                    self._error_occurred("Could not open capture device (index " + str(config.get("game", "device_index")) + ")")
+                    return False
+                time.sleep(0.1)
+                try:
+                    self._game_capture.capture()
+                except:
+                    pass
+        else:
+            if self._game_capture.get_region(STAR_REGION) is None:
+                self._error_occurred("Could not capture " + config.get("game", "process_name"))
+                return False
 
         current_capture_size = self._game_capture.get_capture_size()
 
@@ -223,8 +241,11 @@ class Base(Thread):
 
             if not valid:
                 self.stop()
+                return
 
             self._processor_switch._current_processor = self._current_split.split_type
+
+            self._started_occurred()
 
             while self._running:
                 as64.current_time = time.time()
@@ -542,6 +563,9 @@ class Base(Thread):
     def set_update_listener(self, listener):
         self._update_listener = listener
 
+    def set_started_listener(self, listener):
+        self._started_listener = listener
+
     def set_error_listener(self, listener):
         self._error_listener = listener
 
@@ -552,6 +576,12 @@ class Base(Thread):
             pass
 
         self.stop()
+
+    def _started_occurred(self):
+        try:
+            self._started_listener()
+        except AttributeError:
+            pass
 
     def _update_occurred(self):
         try:
