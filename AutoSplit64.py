@@ -1,6 +1,5 @@
 import sys
 from threading import Thread
-import logging
 
 import cv2
 import onnxruntime  # must be imported in main thread before worker threads start
@@ -173,12 +172,6 @@ class AutoSplit64(QtCore.QObject):
 
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        filename=".log",
-        level=logging.DEBUG,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-    )
-
     # Create QT Application
     qt_app = QtWidgets.QApplication(sys.argv)
 
@@ -206,13 +199,6 @@ if __name__ == "__main__":
 
     # Add font to database
     QtGui.QFontDatabase.addApplicationFont(resource_path("resources/gui/font/TCM_____.ttf"))
-
-    logging.basicConfig(
-        level=logging.WARNING,
-        format='%(asctime)s:%(levelname)s:%(name)s:%(message)s',
-        filename=".log",
-        filemode='a'
-    )
 
     # Create main application
     autosplit64 = AutoSplit64(qt_app)

@@ -1,17 +1,9 @@
 import os
 import json
-import logging
 import requests
 import zipfile
 
 from PyQt5 import QtCore
-
-logging.basicConfig(
-    filename="updater.log",
-    level=logging.DEBUG,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    filemode="w",
-)
 
 
 from as64core import resource_utils

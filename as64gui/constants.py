@@ -1,6 +1,6 @@
-VERSION = "0.2.5"
+VERSION = "0.3.3"
 TITLE = "AutoSplit 64"
-AUTHOR = "Synozure"
+AUTHOR = "Synozure, Ricky"
 
 WIDTH = 365
 HEIGHT = 259
@@ -15,7 +15,6 @@ STAR_PATH = "resources/gui/buttons/star_default.png"
 STAR_HOVER_PATH = "resources/gui/buttons/star_hover.png"
 MINIMIZE_PATH = "resources/gui/buttons/minimize_default.png"
 BACKGROUND_PATH = "resources/gui/gui_bg.png"
-ABOUT_PATH = "resources/gui/about_bg.png"
 ROUTES_DIR = "routes"
 
 

@@ -34,6 +34,7 @@ config.ini
 .master_version
 misc/
 resources/game_preview.png
+templates/generated_reset_*.jpg
 
 # PyInstaller
 #  Usually these files are written by a python script from a template

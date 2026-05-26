@@ -16,6 +16,7 @@ import (
 	"github.com/lxn/win"
 )
 
+
 const (
 	apiURL    = "https://api.github.com/repos/yewdofu/AutoSplit64/releases/latest"
 	patchFile = "patch.zip"
@@ -40,28 +41,9 @@ type UpdaterWindow struct {
 	aborted     bool
 }
 
-var logFile *os.File
-
-func initLog() {
-	f, err := os.Create("updater.log")
-	if err == nil {
-		logFile = f
-	}
-}
-
-func logf(format string, args ...any) {
-	if logFile != nil {
-		fmt.Fprintf(logFile, format+"\n", args...)
-		logFile.Sync()
-	}
-}
-
 func main() {
-	initLog()
-	logf("Updater started")
 	u := &UpdaterWindow{}
 
-	logf("Creating window")
 	if err := (MainWindow{
 		AssignTo: &u.MainWindow,
 		Title:    "AutoSplit64 Updater",
@@ -95,10 +77,8 @@ func main() {
 	hwnd := u.MainWindow.Handle()
 	style := win.GetWindowLong(hwnd, win.GWL_STYLE)
 	win.SetWindowLong(hwnd, win.GWL_STYLE, style&^win.WS_THICKFRAME)
-	logf("Window created, starting run goroutine")
 	go u.run()
 	u.Run()
-	logf("Run() returned")
 }
 
 func (u *UpdaterWindow) setStatus(text string) {
@@ -110,14 +90,11 @@ func (u *UpdaterWindow) setProgress(pct int) {
 }
 
 func (u *UpdaterWindow) run() {
-	logf("run() started")
 	release, err := fetchRelease()
 	if err != nil {
-		logf("fetchRelease error: %v", err)
 		u.setStatus(fmt.Sprintf("Error: %v", err))
 		return
 	}
-	logf("fetchRelease ok, tag=%s, assets=%d", release.TagName, len(release.Assets))
 
 	var asset *Asset
 	for i := range release.Assets {
@@ -133,7 +110,6 @@ func (u *UpdaterWindow) run() {
 
 	version := strings.TrimPrefix(release.TagName, "v")
 
-	logf("Downloading: %s", asset.BrowserDownloadURL)
 	u.setStatus(fmt.Sprintf("Downloading Version %s", version))
 	if err := u.download(asset.BrowserDownloadURL, asset.Size); err != nil {
 		if !u.aborted {
@@ -150,21 +126,14 @@ func (u *UpdaterWindow) run() {
 	u.setStatus(fmt.Sprintf("Installing Version %s", version))
 	u.setProgress(0)
 	if err := u.extract(); err != nil {
-		logf("extract error: %v", err)
 		u.setStatus(fmt.Sprintf("Install error: %v", err))
 		os.Remove(patchFile)
 		return
 	}
 	os.Remove(patchFile)
-	logf("Extract done, launching AutoSplit64.exe")
 
 	exePath, _ := filepath.Abs("AutoSplit64.exe")
-	logf("exePath: %s", exePath)
-	if err := exec.Command(exePath).Start(); err != nil {
-		logf("launch error: %v", err)
-	} else {
-		logf("launch ok")
-	}
+	exec.Command(exePath).Start()
 
 	u.Synchronize(func() { u.MainWindow.Close() })
 }
