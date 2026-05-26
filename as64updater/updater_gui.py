@@ -72,7 +72,7 @@ class UpdaterGUI(QtWidgets.QMainWindow):
         self.progress_bar.setValue(0)
 
     def set_progress(self, percent):
-        self.progress_bar.setValue(percent)
+        self.progress_bar.setValue(int(percent))
 
     def display_error_message(self, message, title="Error"):
         """

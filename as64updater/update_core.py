@@ -2,8 +2,9 @@ import os
 import json
 import logging
 import requests
-from threading import Thread
 import zipfile
+
+from PyQt5 import QtCore
 
 logging.basicConfig(
     filename="updater.log",
@@ -17,7 +18,7 @@ from as64core import resource_utils
 from as64core import config
 
 
-class UpdaterCore(Thread):
+class UpdaterCore(QtCore.QThread):
     """
     Listener Callbacks:
         update_complete
@@ -189,6 +190,8 @@ class UpdaterCore(Thread):
                     file.write(chunk)
                     current_bytes += len(chunk)
                     logging.debug(f"Downloaded {current_bytes} / {total_size} bytes")
+                    if total_size:
+                        self._chunk_report(current_bytes, total_size)
 
         logging.info(f"Download finished: {current_bytes} bytes written")
 
@@ -210,6 +213,10 @@ class UpdaterCore(Thread):
                     logging.debug(f"Extracting: {info.filename}")
                     zip_file.extract(info, '.')
                     current_bytes += info.file_size
+                    try:
+                        self._listener.install_report(current_bytes / total_size * 100.0)
+                    except AttributeError:
+                        pass
             logging.info("Patch applied successfully")
             return True
         except Exception as e:

@@ -1,5 +1,6 @@
 import sys
-import win32api
+import os
+import logging
 
 from PyQt5 import QtCore, QtWidgets, QtGui
 
@@ -28,7 +29,6 @@ class Updater(QtCore.QObject):
 
         # Connections
         self.gui.abort_button.clicked.connect(self.core.abort_download)
-        self.gui.destroyed.connect(self.exit)
 
         self.DOWNLOAD_REPORT.connect(self.gui.set_progress)
         self.INSTALL_REPORT.connect(self.gui.set_progress)
@@ -36,7 +36,7 @@ class Updater(QtCore.QObject):
         self.UPDATE_FOUND.connect(self.gui.set_download_version)
         self.DOWNLOAD_BEGIN.connect(lambda: self.gui.set_status(UpdaterGUI.DOWNLOADING))
         self.DOWNLOAD_COMPLETE.connect(lambda: self.gui.set_status(UpdaterGUI.INSTALLING))
-        self.UPDATE_COMPLETE.connect(self.gui.close)
+        self.UPDATE_COMPLETE.connect(self._on_update_complete)
         self.UPDATE_ERROR.connect(self.gui.display_error_message)
 
         self.core.start()
@@ -46,6 +46,21 @@ class Updater(QtCore.QObject):
 
     def update_complete(self):
         self.UPDATE_COMPLETE.emit()
+
+    def _on_update_complete(self):
+        logging.info("_on_update_complete called")
+        exe = os.path.join(os.getcwd(), 'AutoSplit64.exe')
+        logging.info(f"Launching: {exe}")
+        for handler in logging.root.handlers:
+            handler.flush()
+        try:
+            os.startfile(exe)
+            logging.info("startfile succeeded")
+        except Exception as e:
+            logging.error(f"Launch failed: {e}")
+        for handler in logging.root.handlers:
+            handler.flush()
+        self.gui.close()
 
     def update_found(self, version):
         self.UPDATE_FOUND.emit(version)
