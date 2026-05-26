@@ -13,6 +13,7 @@ import (
 
 	"github.com/lxn/walk"
 	. "github.com/lxn/walk/declarative"
+	"github.com/lxn/win"
 )
 
 const (
@@ -64,9 +65,9 @@ func main() {
 	if err := (MainWindow{
 		AssignTo: &u.MainWindow,
 		Title:    "AutoSplit64 Updater",
-		MinSize:  Size{Width: 320, Height: 110},
-		MaxSize:  Size{Width: 320, Height: 110},
-		Layout:   VBox{Margins: Margins{Left: 12, Top: 12, Right: 12, Bottom: 12}},
+		MinSize:  Size{Width: 280, Height: 90},
+		MaxSize:  Size{Width: 280, Height: 90},
+		Layout:   VBox{Margins: Margins{Left: 6, Top: 6, Right: 6, Bottom: 6}, Spacing: 3},
 		Children: []Widget{
 			Label{AssignTo: &u.statusLabel, Text: "Connecting..."},
 			ProgressBar{AssignTo: &u.progressBar, MinValue: 0, MaxValue: 100},
@@ -90,6 +91,10 @@ func main() {
 		panic(err)
 	}
 
+	u.MainWindow.SetBounds(walk.Rectangle{X: 100, Y: 100, Width: 280, Height: 90})
+	hwnd := u.MainWindow.Handle()
+	style := win.GetWindowLong(hwnd, win.GWL_STYLE)
+	win.SetWindowLong(hwnd, win.GWL_STYLE, style&^win.WS_THICKFRAME)
 	logf("Window created, starting run goroutine")
 	go u.run()
 	u.Run()
