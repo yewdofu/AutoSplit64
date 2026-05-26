@@ -25,8 +25,11 @@
 ## About This Fork
 
 This is a fork of [Synozure's AutoSplit64](https://github.com/kainev/AutoSplit64), maintained to improve and extend the **legacy version** (v0.2.x / v0.3.x).
+Modifications made from 2026 onwards by Ricky (yewdofu).
 
 The original project has since moved to a new architecture. This fork focuses on keeping the legacy codebase functional and polished — fixing bugs, improving usability, and adding quality-of-life features — without breaking compatibility with existing routes and workflows.
+
+Released under the [GNU General Public License v3](LICENSE).
 
 ## Introduction
 
