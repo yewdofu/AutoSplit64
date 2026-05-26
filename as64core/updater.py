@@ -5,7 +5,7 @@ from as64updater.update_core import UpdaterCore
 
 class Updater(object):
 
-    VERSION_URL = 'https://autosplit64.com/.master_version'
+    VERSION_URL = 'https://api.github.com/repos/yewdofu/AutoSplit64/releases/latest'
     LOCAL_VERSION_PATH = ".version"
 
     def __init__(self):

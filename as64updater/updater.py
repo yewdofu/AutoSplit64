@@ -21,7 +21,7 @@ class Updater(QtCore.QObject):
 
         # Initialize GUI
         self.gui = UpdaterGUI()
-        self.core = UpdaterCore(master_version_url="https://autosplit64.com/.master_version",
+        self.core = UpdaterCore(master_version_url="https://api.github.com/repos/yewdofu/AutoSplit64/releases/latest",
                                 local_version_path=".version")
 
         self.core.set_listener(self)
@@ -37,6 +37,7 @@ class Updater(QtCore.QObject):
         self.DOWNLOAD_BEGIN.connect(lambda: self.gui.set_status(UpdaterGUI.DOWNLOADING))
         self.DOWNLOAD_COMPLETE.connect(lambda: self.gui.set_status(UpdaterGUI.INSTALLING))
         self.UPDATE_COMPLETE.connect(self.gui.close)
+        self.UPDATE_ERROR.connect(self.gui.display_error_message)
 
         self.core.start()
 

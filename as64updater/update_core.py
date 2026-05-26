@@ -1,10 +1,16 @@
 import os
 import json
+import logging
 import requests
-from distutils.version import LooseVersion
 from threading import Thread
-import urllib
 import zipfile
+
+logging.basicConfig(
+    filename="updater.log",
+    level=logging.DEBUG,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    filemode="w",
+)
 
 
 from as64core import resource_utils
@@ -56,13 +62,15 @@ class UpdaterCore(Thread):
         self._abort_download = False
 
     def run(self):
+        logging.info("Updater started")
         self.acquire_master()
-        self.load_local()
 
-        if not self.update_available():
+        if not self.master_version or not self.master_version.get(self.patch_url_key):
+            logging.warning("No master version or patch_url found")
             self._listener.update_complete()
             return False
 
+        logging.info(f"patch_url: {self.master_version.get(self.patch_url_key)}")
         self._listener.update_found(self.master_version[self.master_version_key])
 
         try:
@@ -70,24 +78,33 @@ class UpdaterCore(Thread):
         except AttributeError:
             pass
 
-        self.download_patch()
+        try:
+            self.download_patch()
+        except Exception as e:
+            logging.exception("Download failed")
+            try:
+                self._listener.update_error(f"Download failed: {e}")
+            except AttributeError:
+                pass
+            return False
 
         if self._abort_download:
             self.cleanup()
-
             try:
                 self._listener.update_complete()
             except AttributeError:
                 pass
-
             return False
 
-        self.apply_patch()
+        if not self.apply_patch():
+            self.cleanup()
+            return False
 
         self.update_config()
 
         self.cleanup()
 
+        logging.info("Update complete")
         self._listener.update_complete()
 
         return True
@@ -106,9 +123,26 @@ class UpdaterCore(Thread):
 
     def acquire_master(self):
         try:
-            master_raw = requests.get(self.master_version_url)
-            self.master_version = json.loads(master_raw.text)
-        except (requests.exceptions.ConnectionError, json.decoder.JSONDecodeError):
+            response = requests.get(
+                self.master_version_url,
+                headers={"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"},
+                timeout=10,
+            )
+            release = response.json()
+            asset = next((a for a in release.get("assets", []) if a["name"].endswith(".zip")), None)
+            features = [
+                line.strip().lstrip("-* ").strip()
+                for line in release.get("body", "").splitlines()
+                if line.strip() and not line.strip().startswith("#")
+            ]
+            self.master_version = {
+                "version": release["tag_name"].lstrip("v"),
+                "patch_url": asset["browser_download_url"] if asset else None,
+                "patch_size": round(asset["size"] / (1024 * 1024), 1) if asset else 0,
+                "version_features": features,
+                "version_post": release.get("html_url", ""),
+            }
+        except (requests.exceptions.ConnectionError, json.decoder.JSONDecodeError, KeyError):
             pass
 
     def load_local(self):
@@ -128,17 +162,35 @@ class UpdaterCore(Thread):
         if self.master_version is None or self.local_version is None:
             return False
 
-        if LooseVersion(self.local_version[self.local_version_key]) < LooseVersion(self.master_version[self.master_version_key]):
-            return True
-        else:
-            return False
+        def parse(v):
+            return tuple(int(x) for x in v.lstrip("v").split("."))
+
+        return parse(self.local_version[self.local_version_key]) < parse(self.master_version[self.master_version_key])
 
     def download_patch(self):
-        with open(UpdaterCore.PATCH_FILE, 'wb') as file:
-            response = urllib.request.urlopen(self.master_version[self.patch_url_key])
-            data = self._chunk_read(response, report_hook=self._chunk_report)
+        logging.info("Starting download")
+        response = requests.get(
+            self.master_version[self.patch_url_key],
+            stream=True,
+            timeout=60,
+        )
+        logging.info(f"Response status: {response.status_code}, Content-Length: {response.headers.get('Content-Length')}")
+        response.raise_for_status()
 
-            file.write(data)
+        total_size = int(response.headers.get("Content-Length", 0))
+        current_bytes = 0
+
+        with open(UpdaterCore.PATCH_FILE, 'wb') as file:
+            for chunk in response.iter_content(chunk_size=65536):
+                if self._abort_download:
+                    logging.info("Download aborted")
+                    break
+                if chunk:
+                    file.write(chunk)
+                    current_bytes += len(chunk)
+                    logging.debug(f"Downloaded {current_bytes} / {total_size} bytes")
+
+        logging.info(f"Download finished: {current_bytes} bytes written")
 
         if not self._abort_download:
             try:
@@ -147,45 +199,26 @@ class UpdaterCore(Thread):
                 pass
 
     def apply_patch(self):
-        block_size = 8192
-
+        logging.info("Applying patch")
         try:
-            with open(UpdaterCore.PATCH_FILE, mode="rb") as patch:
-                zip_file = zipfile.ZipFile(patch)
-
-                total_size = sum([zip_file_info.file_size for zip_file_info in zip_file.filelist])
+            with zipfile.ZipFile(UpdaterCore.PATCH_FILE, 'r') as zip_file:
+                entries = [info for info in zip_file.infolist() if not info.is_dir()]
+                total_size = sum(info.file_size for info in entries) or 1
                 current_bytes = 0
 
-                for file_name in zip_file.namelist():
-                    output_file = open(file_name, 'wb')
-                    file = zip_file.open(file_name)
-
-                    while True:
-                        chunk = file.read(block_size)
-                        current_bytes += len(chunk)
-
-                        try:
-                            self._listener.install_report(float(current_bytes) / float(total_size) * 100.0)
-                        except AttributeError:
-                            pass
-
-                        if not chunk:
-                            break
-
-                        output_file.write(chunk)
-
-                    file.close()
-                    output_file.close()
-        except FileNotFoundError:
+                for info in entries:
+                    logging.debug(f"Extracting: {info.filename}")
+                    zip_file.extract(info, '.')
+                    current_bytes += info.file_size
+            logging.info("Patch applied successfully")
+            return True
+        except Exception as e:
+            logging.exception("apply_patch failed")
             try:
-                self._listener.update_error("Patch file not found")
+                self._listener.update_error(str(e))
             except AttributeError:
                 pass
-        except PermissionError:
-            try:
-                self._listener.update_error("Permission Error: Access Denied")
-            except AttributeError:
-                pass
+            return False
 
     def update_config(self):
         try:

@@ -42,10 +42,15 @@ jobs:
           "
 
       - name: Build with PyInstaller
-        run: uv run --group dev pyinstaller -y AutoSplit64.spec
+        run: |
+          uv run --group dev pyinstaller -y AutoSplit64.spec
+          uv run --group dev pyinstaller -y Updater.spec
 
       - name: Show bundled python313.dll path
         run: Get-Item dist\AutoSplit64\_internal\python313.dll | Select-Object FullName, Length
+
+      - name: Copy Updater into AutoSplit64 dist
+        run: Copy-Item -Path dist\Updater.exe -Destination dist\AutoSplit64\Updater.exe
 
       - name: Create zip
         run: Compress-Archive -Path dist\AutoSplit64\* -DestinationPath "AutoSplit64-${{ github.ref_name }}.zip"
