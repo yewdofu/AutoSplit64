@@ -455,8 +455,9 @@ class CaptureEditor(QtWidgets.QDialog):
                 config.set_key("game", "device_name", self.device_combo.currentText(), self._draft)
                 config.set_key("game", "capture_source", CAPTURE_SOURCE_DEVICE, self._draft)
                 config.set_key("game", "device_resolution", list(resolution), self._draft)
-                cap = open_video_device(device_data, resolution)
+                cap = None
                 try:
+                    cap = open_video_device(device_data, resolution)
                     if cap.isOpened():
                         ret, frame = cap.read()
                         if ret:
@@ -465,8 +466,11 @@ class CaptureEditor(QtWidgets.QDialog):
                             w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                             h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                         config.set_key("game", "capture_size", [w, h], self._draft)
+                except Exception:
+                    pass
                 finally:
-                    cap.release()
+                    if cap is not None:
+                        cap.release()
         else:
             config.set_key("game", "process_name", self.process_combo.currentText(), self._draft)
             config.set_key("game", "capture_source", CAPTURE_SOURCE_WINDOW, self._draft)

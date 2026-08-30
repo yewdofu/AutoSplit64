@@ -337,6 +337,8 @@ class ResetGeneratorDialog(QtWidgets.QDialog):
 
 class ResetGenerator(QtCore.QThread):
     CAPTURE_COUNT = 5
+    OPEN_RETRY_COUNT = 5
+    OPEN_RETRY_INTERVAL = 0.5
 
     generated = QtCore.pyqtSignal()
     error = QtCore.pyqtSignal(str)
@@ -346,12 +348,10 @@ class ResetGenerator(QtCore.QThread):
         self._running = False
         self._capture_released = False
         self._template_dir = template_dir
+        self._game_capture = None
         if config.get("game", "capture_source") == "device":
-            self._game_capture = DeviceCapture(config.get("game", "device_index"), config.get("game", "game_region"),
-                                               GAME_JP, config.get("game", "device_resolution"))
-            self._capture_name = f"Device {config.get('game', 'device_index')}"
+            self._capture_name = config.get("game", "device_name") or f"Device {config.get('game', 'device_index')}"
         else:
-            self._game_capture = GameCapture(config.get("game", "process_name"), config.get("game", "game_region"), GAME_JP)
             self._capture_name = config.get("game", "process_name")
 
     @property
@@ -360,6 +360,9 @@ class ResetGenerator(QtCore.QThread):
 
     def run(self):
         self._running = True
+        if not self._open_capture():
+            return
+
         reset_occurred = False
         frame = 0
 
@@ -410,6 +413,43 @@ class ResetGenerator(QtCore.QThread):
         self._release_capture()
 
     def _release_capture(self):
-        if isinstance(self._game_capture, DeviceCapture) and not self._capture_released:
+        if self._game_capture is not None and hasattr(self._game_capture, "release") and not self._capture_released:
             self._capture_released = True
             self._game_capture.release()
+
+    def _open_capture(self):
+        if config.get("game", "capture_source") != "device":
+            try:
+                self._game_capture = GameCapture(
+                    config.get("game", "process_name"), config.get("game", "game_region"), GAME_JP
+                )
+                return True
+            except Exception:
+                if self._running:
+                    self.error.emit("Unable to access " + self._capture_name)
+                self._running = False
+                return False
+
+        for attempt in range(self.OPEN_RETRY_COUNT):
+            if not self._running:
+                return False
+            self._capture_released = False
+            self._game_capture = None
+            try:
+                self._game_capture = DeviceCapture(
+                    config.get("game", "device_index"), config.get("game", "game_region"),
+                    GAME_JP, config.get("game", "device_resolution")
+                )
+                if self._game_capture.is_valid():
+                    return True
+            except Exception:
+                pass
+            self._release_capture()
+            self._game_capture = None
+            if attempt + 1 < self.OPEN_RETRY_COUNT:
+                time.sleep(self.OPEN_RETRY_INTERVAL)
+
+        if self._running:
+            self.error.emit("Unable to access " + self._capture_name)
+        self._running = False
+        return False

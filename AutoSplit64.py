@@ -187,16 +187,22 @@ class AutoSplit64(QtCore.QObject):
         device_index = config.get("game", "device_index")
         while self._device_retrying:
             time.sleep(1)
-            cap = open_video_device(device_index, config.get("game", "device_resolution"))
-            if cap.isOpened():
-                ret, _ = cap.read()
-                cap.release()
-                if ret:
-                    time.sleep(0.5)
-                    self._device_retrying = False
-                    self.capture_waiting.emit(False)
-                    self.app.start.emit()
-                    return
+            cap = None
+            try:
+                cap = open_video_device(device_index, config.get("game", "device_resolution"))
+                if cap.isOpened():
+                    ret, _ = cap.read()
+                    if ret:
+                        time.sleep(0.5)
+                        self._device_retrying = False
+                        self.capture_waiting.emit(False)
+                        self.app.start.emit()
+                        return
+            except Exception:
+                pass
+            finally:
+                if cap is not None:
+                    cap.release()
 
     def exit(self):
         self.stop()

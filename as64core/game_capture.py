@@ -157,11 +157,15 @@ class DeviceCapture(_BaseCaptureSource):
 
 
 def open_video_device(device_index, resolution=None):
-    cap = cv2.VideoCapture(device_index, cv2.CAP_DSHOW)
-    if resolution:
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
-    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    cap = cv2.VideoCapture()
+    try:
+        cap.open(device_index, cv2.CAP_DSHOW)
+        if resolution:
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    except Exception:
+        cap.release()
     return cap
 
 
@@ -178,8 +182,10 @@ def get_available_devices():
     except Exception:
         devices = []
         for i in range(10):
-            cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
-            if cap.isOpened():
-                devices.append((i, f"Device {i}"))
+            cap = open_video_device(i)
+            try:
+                if cap.isOpened():
+                    devices.append((i, f"Device {i}"))
+            finally:
                 cap.release()
         return devices
