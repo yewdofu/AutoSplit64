@@ -1,7 +1,6 @@
 import sys
 from threading import Thread
 
-import cv2
 import onnxruntime  # must be imported in main thread before worker threads start
 
 from PyQt5 import QtCore, QtWidgets, QtGui
@@ -9,6 +8,7 @@ from PyQt5 import QtCore, QtWidgets, QtGui
 from as64gui.app import App
 
 import as64core
+from as64core.game_capture import open_video_device
 from as64core.processing import register_process, insert_global_hook, insert_global_processor_hook, ProcessorGenerator
 from as64core.route_loader import load
 from as64core.updater import Updater
@@ -155,7 +155,7 @@ class AutoSplit64(QtCore.QObject):
         device_index = config.get("game", "device_index")
         while self._device_retrying:
             time.sleep(1)
-            cap = cv2.VideoCapture(device_index, cv2.CAP_DSHOW)
+            cap = open_video_device(device_index, config.get("game", "device_resolution"))
             if cap.isOpened():
                 ret, _ = cap.read()
                 cap.release()

@@ -294,7 +294,8 @@ class ResetGenerator(QtCore.QThread):
         super().__init__()
         self._running = False
         if config.get("game", "capture_source") == "device":
-            self._game_capture = DeviceCapture(config.get("game", "device_index"), config.get("game", "game_region"), GAME_JP)
+            self._game_capture = DeviceCapture(config.get("game", "device_index"), config.get("game", "game_region"),
+                                               GAME_JP, config.get("game", "device_resolution"))
             self._capture_name = f"Device {config.get('game', 'device_index')}"
         else:
             self._game_capture = GameCapture(config.get("game", "process_name"), config.get("game", "game_region"), GAME_JP)
@@ -344,6 +345,5 @@ class ResetGenerator(QtCore.QThread):
 
     def stop(self):
         self._running = False
-
 
 

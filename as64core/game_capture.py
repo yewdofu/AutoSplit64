@@ -132,9 +132,8 @@ class GameCapture(_BaseCaptureSource):
 
 
 class DeviceCapture(_BaseCaptureSource):
-    def __init__(self, device_index, game_region, version):
-        self._cap = cv2.VideoCapture(device_index, cv2.CAP_DSHOW)
-        self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    def __init__(self, device_index, game_region, version, resolution=None):
+        self._cap = open_video_device(device_index, resolution)
         super().__init__(game_region, version)
 
     def is_valid(self) -> bool:
@@ -155,6 +154,15 @@ class DeviceCapture(_BaseCaptureSource):
 
     def release(self):
         self._cap.release()
+
+
+def open_video_device(device_index, resolution=None):
+    cap = cv2.VideoCapture(device_index, cv2.CAP_DSHOW)
+    if resolution:
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    return cap
 
 
 def get_available_devices():

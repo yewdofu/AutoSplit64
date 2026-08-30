@@ -6,7 +6,7 @@ import cv2
 
 from as64core import capture_window, config
 from as64core import resource_utils
-from as64core.game_capture import get_available_devices
+from as64core.game_capture import get_available_devices, open_video_device
 from ..widgets import HLine
 from ..graphics import RectangleSelector
 from ..constants import (
@@ -15,6 +15,7 @@ from ..constants import (
 
 CAPTURE_SOURCE_WINDOW = "window"
 CAPTURE_SOURCE_DEVICE = "device"
+DEVICE_RESOLUTIONS = [(1920, 1080), (1280, 720), (720, 576), (720, 480), (640, 480), (320, 240)]
 
 
 class _DeviceEnumerationWorker(QtCore.QThread):
@@ -31,11 +32,13 @@ class CaptureEditor(QtWidgets.QDialog):
     def __init__(self, parent=None):
         QtWidgets.QDialog.__init__(self, parent, QtCore.Qt.WindowSystemMenuHint | QtCore.Qt.WindowCloseButtonHint)
 
+        self._loading = True
+        self._device_worker = None
+        self._preview_size = None
+        self._reset_region_on_next_frame = False
+
         self.window_title = "Game Capture Editor"
         self.setWindowIcon(QtGui.QIcon(resource_utils.resource_path(ICON_PATH)))
-
-        self.preview_image_path = r'resources/game_preview.png'
-        self.preview_not_found_image_path = r'resources/game_preview_not_found.png'
 
         # Layouts
         self.main_layout = QtWidgets.QHBoxLayout()
@@ -62,6 +65,10 @@ class CaptureEditor(QtWidgets.QDialog):
         self.device_lb = QtWidgets.QLabel("Device:")
         self.device_combo = QtWidgets.QComboBox()
         self.device_refresh_btn = QtWidgets.QPushButton("Refresh")
+        self.resolution_lb = QtWidgets.QLabel("Resolution:")
+        self.resolution_combo = QtWidgets.QComboBox()
+        for width, height in DEVICE_RESOLUTIONS:
+            self.resolution_combo.addItem(f"{width} x {height}", (width, height))
 
         self.capture_btn = QtWidgets.QPushButton("Capture")
 
@@ -75,9 +82,11 @@ class CaptureEditor(QtWidgets.QDialog):
         self.preview_pixmap = QtGui.QPixmap()
 
         self.initialize()
+        self._loading = False
 
     def initialize(self):
         self.setWindowTitle(self.window_title)
+        self.resize(1200, 700)
 
         self.setLayout(self.main_layout)
         self.left_widget.setLayout(self.left_layout)
@@ -97,7 +106,10 @@ class CaptureEditor(QtWidgets.QDialog):
         self.source_combo.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
         self.process_combo.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
         self.device_combo.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
+        self.resolution_combo.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
         self.device_refresh_btn.setMaximumWidth(80)
+        self.graphics_view.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.graphics_view.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
 
         self._refresh_process_list()
 
@@ -108,8 +120,10 @@ class CaptureEditor(QtWidgets.QDialog):
         self.left_layout.addWidget(self.device_lb, 2, 0)
         self.left_layout.addWidget(self.device_combo, 2, 1)
         self.left_layout.addWidget(self.device_refresh_btn, 2, 2)
-        self.left_layout.addWidget(self.capture_btn, 3, 0, 1, 3)
-        self.left_layout.addItem(QtWidgets.QSpacerItem(20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding), 4, 0)
+        self.left_layout.addWidget(self.resolution_lb, 3, 0)
+        self.left_layout.addWidget(self.resolution_combo, 3, 1, 1, 2)
+        self.left_layout.addWidget(self.capture_btn, 4, 0, 1, 3)
+        self.left_layout.addItem(QtWidgets.QSpacerItem(20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding), 5, 0)
 
         # Right Widget
         self.apply_btn.setDefault(False)
@@ -132,11 +146,10 @@ class CaptureEditor(QtWidgets.QDialog):
         self.apply_btn.clicked.connect(self.apply_clicked)
         self.cancel_btn.clicked.connect(self.cancel_clicked)
         self.game_region_panel.updated.connect(self.on_game_region_panel_update)
-        self.process_combo.currentIndexChanged.connect(self.refresh_graphics_scene)
-        self.device_combo.currentIndexChanged.connect(self.refresh_graphics_scene)
+        self.process_combo.currentIndexChanged.connect(self._on_process_changed)
+        self.device_combo.currentIndexChanged.connect(self._on_device_changed)
+        self.resolution_combo.currentIndexChanged.connect(self._on_resolution_changed)
         self.device_refresh_btn.clicked.connect(self._refresh_device_list)
-
-        self._device_worker = None
 
         self.refresh_graphics_scene()
 
@@ -150,9 +163,24 @@ class CaptureEditor(QtWidgets.QDialog):
         self.device_lb.setVisible(is_device)
         self.device_combo.setVisible(is_device)
         self.device_refresh_btn.setVisible(is_device)
+        self.resolution_lb.setVisible(is_device)
+        self.resolution_combo.setVisible(is_device)
         if is_device and self.device_combo.count() == 0:
             self._refresh_device_list()
-        self.refresh_graphics_scene()
+        if not self._loading:
+            self.refresh_graphics_scene(reset_region=True)
+
+    def _on_device_changed(self, index):
+        if not self._loading and index >= 0:
+            self.refresh_graphics_scene(reset_region=True)
+
+    def _on_process_changed(self, index):
+        if not self._loading and index >= 0:
+            self.refresh_graphics_scene(reset_region=True)
+
+    def _on_resolution_changed(self, index):
+        if not self._loading and index >= 0:
+            self.refresh_graphics_scene(reset_region=True)
 
     def _refresh_process_list(self):
         self.process_combo.clear()
@@ -185,10 +213,17 @@ class CaptureEditor(QtWidgets.QDialog):
             self.refresh_graphics_scene()
 
     def show(self):
+        self._loading = True
         game_region = config.get('game', 'game_region')
         self.game_region_selector.resize(game_region[2], game_region[3])
         self.game_region_selector.setPos(game_region[0], game_region[1])
         self.game_region_panel.update_text(*[str(v) for v in game_region])
+        self._preview_size = tuple(config.get("game", "capture_size"))
+
+        resolution = tuple(config.get("game", "device_resolution"))
+        resolution_index = self.resolution_combo.findData(resolution)
+        if resolution_index >= 0:
+            self.resolution_combo.setCurrentIndex(resolution_index)
 
         # Set source from config
         source = config.get("game", "capture_source")
@@ -203,13 +238,14 @@ class CaptureEditor(QtWidgets.QDialog):
                 if self._process_list[i][0].name() == p_name:
                     self.process_combo.setCurrentIndex(i)
 
+        self._loading = False
         self.refresh_graphics_scene()
         config.create_rollback()
         super().show()
 
     def apply_clicked(self):
         if not self._is_minimum_size():
-            if self.display_warning("Game width and height are below the recommended minimum (614, 448). You may experience sub-optimal performance."):
+            if self.display_warning("The selected region is below the game's native resolution (320, 240). You may experience sub-optimal performance."):
                 return
 
         config.set_key("game", "game_region", self.game_region_panel.get_data())
@@ -217,12 +253,18 @@ class CaptureEditor(QtWidgets.QDialog):
         if self._is_device_mode():
             device_data = self.device_combo.currentData()
             if device_data is not None:
+                resolution = self.resolution_combo.currentData()
                 config.set_key("game", "device_index", device_data)
                 config.set_key("game", "capture_source", CAPTURE_SOURCE_DEVICE)
-                cap = cv2.VideoCapture(device_data, cv2.CAP_DSHOW)
+                config.set_key("game", "device_resolution", list(resolution))
+                cap = open_video_device(device_data, resolution)
                 if cap.isOpened():
-                    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    ret, frame = cap.read()
+                    if ret:
+                        h, w = frame.shape[:2]
+                    else:
+                        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                     config.set_key("game", "capture_size", [w, h])
                     cap.release()
         else:
@@ -249,19 +291,47 @@ class CaptureEditor(QtWidgets.QDialog):
         self.game_region_selector.resize(e[2], e[3])
         self.game_region_selector.setPos(e[0], e[1])
 
-    def refresh_graphics_scene(self):
-        self.graphics_scene.removeItem(self.game_region_selector)
+    def refresh_graphics_scene(self, reset_region=False):
+        if reset_region:
+            self._reset_region_on_next_frame = True
+
+        if self.game_region_selector.scene() is self.graphics_scene:
+            self.graphics_scene.removeItem(self.game_region_selector)
         self.graphics_scene.clear()
         self.graphics_view.update()
 
         if self._is_device_mode():
-            self._capture_device_frame()
+            frame = self._capture_device_frame()
         else:
-            self._capture_window_frame()
+            frame = self._capture_window_frame()
 
-        self.preview_pixmap.load(resource_utils.resource_path(self.preview_image_path))
+        if frame is None:
+            self.preview_pixmap = QtGui.QPixmap()
+            self.graphics_scene.setSceneRect(QtCore.QRectF())
+            return
+
+        height, width = frame.shape[:2]
+        if self._preview_size != (width, height):
+            self._reset_region_on_next_frame = True
+        self._preview_size = (width, height)
+
+        if self._reset_region_on_next_frame:
+            self._set_game_region(0, 0, width, height)
+            self._reset_region_on_next_frame = False
+
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        bytes_per_line = rgb_frame.strides[0]
+        image = QtGui.QImage(rgb_frame.data, width, height, bytes_per_line, QtGui.QImage.Format_RGB888).copy()
+        self.preview_pixmap = QtGui.QPixmap.fromImage(image)
         self.graphics_scene.addPixmap(self.preview_pixmap)
         self.graphics_scene.addItem(self.game_region_selector)
+        self.graphics_scene.setSceneRect(QtCore.QRectF(self.preview_pixmap.rect()))
+        self.graphics_view.fitInView(self.graphics_scene.sceneRect(), QtCore.Qt.KeepAspectRatio)
+
+    def _set_game_region(self, x, y, width, height):
+        self.game_region_selector.resize(width, height)
+        self.game_region_selector.setPos(x, y)
+        self.game_region_panel.update_text(str(x), str(y), str(width), str(height))
 
     def _capture_window_frame(self):
         selected_hwnd = 0
@@ -272,28 +342,29 @@ class CaptureEditor(QtWidgets.QDialog):
 
         if selected_hwnd:
             try:
-                preview_image = capture_window.capture(selected_hwnd)
-                cv2.imwrite(resource_utils.resource_path(self.preview_image_path), preview_image)
+                return capture_window.capture(selected_hwnd)
             except Exception:
                 pass
+        return None
 
     def _capture_device_frame(self):
         device_data = self.device_combo.currentData()
         if device_data is None:
-            return
+            return None
         try:
-            cap = cv2.VideoCapture(device_data, cv2.CAP_DSHOW)
+            cap = open_video_device(device_data, self.resolution_combo.currentData())
             if cap.isOpened():
                 ret, frame = cap.read()
                 if ret:
-                    cv2.imwrite(resource_utils.resource_path(self.preview_image_path), frame)
-                cap.release()
+                    return frame
+            cap.release()
         except Exception:
             pass
+        return None
 
     def _is_minimum_size(self):
         region_data = self.game_region_panel.get_data()
-        return region_data[2] >= 612 and region_data[3] >= 448
+        return region_data[2] >= 320 and region_data[3] >= 240
 
     def closeEvent(self, e):
         config.rollback()
@@ -379,13 +450,13 @@ class RectangleCapturePanel(QtWidgets.QWidget):
         self.height_le.editingFinished.connect(self.text_changed)
 
     def update_text(self, x_offset=None, y_offset=None, width=None, height=None):
-        if x_offset:
+        if x_offset is not None:
             self.xoffset_le.setText(x_offset)
-        if y_offset:
+        if y_offset is not None:
             self.yoffset_le.setText(y_offset)
-        if width:
+        if width is not None:
             self.width_le.setText(width)
-        if height:
+        if height is not None:
             self.height_le.setText(height)
 
     def text_changed(self):

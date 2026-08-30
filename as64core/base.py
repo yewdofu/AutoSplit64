@@ -59,7 +59,8 @@ class Base(Thread):
 
         # Initialize the Game Capture
         if config.get("game", "capture_source") == "device":
-            self._game_capture = DeviceCapture(config.get("game", "device_index"), config.get("game", "game_region"), version)
+            self._game_capture = DeviceCapture(config.get("game", "device_index"), config.get("game", "game_region"),
+                                               version, config.get("game", "device_resolution"))
         else:
             self._game_capture = GameCapture(config.get("game", "process_name"), config.get("game", "game_region"), version)
 

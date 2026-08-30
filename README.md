@@ -112,6 +112,7 @@ The Route Editor has been designed to look and function similar to the split edi
 If you encounter any issues, please run through all steps below.
 
 - Check capture coordinates are correct (`Right Click -> Edit Coordinates`)
+- When using a video device, select a capture resolution that matches the source output
 - Ensure LiveSplit server is running (`Right Click LiveSplit -> Control -> Start Server`)
 - Check the correct route is loaded, and that the route file is accurate (i.e. correct star counts, fadeout/fadein counts)
 - Make sure SRL Mode (`Right Click -> SRL Mode`) is disabled if you want AutoSplit64 to detect console resets
