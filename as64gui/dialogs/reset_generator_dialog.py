@@ -73,6 +73,7 @@ class ResetGeneratorHelpDialog(QtWidgets.QDialog):
 
 class ResetGeneratorDialog(QtWidgets.QDialog):
     TEMPLATE_DIR = "templates/"
+    applied = QtCore.pyqtSignal()
     
     def __init__(self, parent=None):
         super().__init__(parent, QtCore.Qt.WindowSystemMenuHint | QtCore.Qt.WindowCloseButtonHint)
@@ -98,6 +99,10 @@ class ResetGeneratorDialog(QtWidgets.QDialog):
         self.gen_2_sb = QtWidgets.QSpinBox()
 
         self._reset_generator = None
+        self._profile_template_dir = None
+        self._profile_id = None
+        self._pending_cleanup_dirs = set()
+        self._reopen_after_stop = False
 
         self.help_dialog = ResetGeneratorHelpDialog(self)
 
@@ -105,6 +110,7 @@ class ResetGeneratorDialog(QtWidgets.QDialog):
 
     def initialize_window(self):
         self.setWindowTitle(self.window_title)
+        self.setWindowModality(QtCore.Qt.ApplicationModal)
         self.resize(400, 200)
 
         # Create Layout
@@ -165,9 +171,24 @@ class ResetGeneratorDialog(QtWidgets.QDialog):
         self.gen_2_sb.valueChanged.connect(self.gen_2_changed)
 
     def show(self):
-        self._reset_generator = ResetGenerator()
-        self._reset_generator.generated.connect(self.on_generate)
-        self._reset_generator.error.connect(self.on_error)
+        if self._reset_generator is not None and self._reset_generator.isRunning():
+            self._reopen_after_stop = True
+            self._stop_generator()
+            self.generate_btn.setText("Stopping...")
+            self.generate_btn.setEnabled(False)
+            self.apply_btn.setEnabled(False)
+            super().show()
+            return
+
+        self._prepare_dialog()
+        super().show()
+
+    def _prepare_dialog(self):
+        self._profile_id = config.get_active_capture_profile_id()
+        self._profile_template_dir = resource_utils.base_path(
+            os.path.join(self.TEMPLATE_DIR, "profiles", self._profile_id)
+        )
+        self._reset_generator = None
 
         self.gen_1_px.clear()
         self.gen_2_px.clear()
@@ -176,69 +197,104 @@ class ResetGeneratorDialog(QtWidgets.QDialog):
         self.apply_btn.setEnabled(False)
         self.gen_1_sb.setEnabled(False)
         self.gen_2_sb.setEnabled(False)
-        super().show()
 
     def hide(self):
-        self._reset_generator.stop()
+        self._reopen_after_stop = False
+        self._stop_generator(cleanup=True)
         super().hide()
 
+    def _stop_generator(self, cleanup=False):
+        if cleanup and self._profile_template_dir:
+            self._pending_cleanup_dirs.add(self._profile_template_dir)
+        if self._reset_generator is not None:
+            worker = self._reset_generator
+            worker.stop()
+            if not worker.isRunning():
+                self._on_generator_finished(worker)
+                return
+        self._cleanup_finished_templates()
+
+    def _create_generator(self):
+        worker = ResetGenerator(self._profile_template_dir)
+        self._reset_generator = worker
+        worker.generated.connect(self.on_generate)
+        worker.error.connect(self.on_error)
+        worker.finished.connect(lambda: self._on_generator_finished(worker))
+
+    def _temporary_template_path(self, frame, template_dir=None):
+        return os.path.join(template_dir or self._profile_template_dir, f"temp_{frame}.jpg")
+
+    def _cleanup_temporary_templates(self, template_dir=None):
+        template_dir = template_dir or self._profile_template_dir
+        if not template_dir:
+            return
+        for frame in range(1, ResetGenerator.CAPTURE_COUNT + 1):
+            try:
+                os.remove(self._temporary_template_path(frame, template_dir))
+            except FileNotFoundError:
+                pass
+
+    def _cleanup_finished_templates(self):
+        active_template_dir = None
+        if self._reset_generator is not None and self._reset_generator.isRunning():
+            active_template_dir = self._reset_generator.template_dir
+        finished_dirs = {
+            template_dir for template_dir in self._pending_cleanup_dirs
+            if template_dir != active_template_dir
+        }
+        for template_dir in finished_dirs:
+            self._cleanup_temporary_templates(template_dir)
+        self._pending_cleanup_dirs.difference_update(finished_dirs)
+
+    def _on_generator_finished(self, worker):
+        if self._reset_generator is not worker:
+            self._cleanup_finished_templates()
+            return
+        self._reset_generator = None
+        self._cleanup_finished_templates()
+        if self._reopen_after_stop and self.isVisible():
+            self._reopen_after_stop = False
+            self._prepare_dialog()
+        elif self.isVisible() and self.generate_btn.text() == "Stopping...":
+            self.generate_btn.setText("Generate")
+            self.generate_btn.setEnabled(True)
+
     def generate_clicked(self):
+        if self._reset_generator is not None and self._reset_generator.isRunning():
+            return
+        self._create_generator()
         self.generate_btn.setText("Waiting..")
         self.generate_btn.setEnabled(False)
         self._reset_generator.start()
 
     def apply_clicked(self):
-        bp = resource_utils.base_path
+        if config.get_active_capture_profile_id() != self._profile_id:
+            self.display_error_message("The active capture profile changed. Reopen the generator and try again.")
+            return
+        os.makedirs(self._profile_template_dir, exist_ok=True)
+        reset_one = os.path.join(self._profile_template_dir, "reset_one.jpg").replace("\\", "/")
+        reset_two = os.path.join(self._profile_template_dir, "reset_two.jpg").replace("\\", "/")
         try:
-            os.remove(bp(ResetGeneratorDialog.TEMPLATE_DIR + "generated_reset_one.jpg"))
+            shutil.copyfile(self._temporary_template_path(self.gen_1_sb.value()), reset_one)
+            shutil.copyfile(self._temporary_template_path(self.gen_2_sb.value()), reset_two)
         except FileNotFoundError:
-            pass
+            self.display_error_message("Generated reset frames could not be found.")
+            return
 
-        try:
-            os.remove(bp(ResetGeneratorDialog.TEMPLATE_DIR + "generated_reset_two.jpg"))
-        except FileNotFoundError:
-            pass
-
-        try:
-            os.rename(bp(ResetGeneratorDialog.TEMPLATE_DIR + "generated_temp_" + str(self.gen_1_sb.value()) + ".jpg"),
-                      bp(ResetGeneratorDialog.TEMPLATE_DIR + "generated_reset_one.jpg"))
-        except FileNotFoundError:
-            pass
-
-        try:
-            os.rename(bp(ResetGeneratorDialog.TEMPLATE_DIR + "generated_temp_" + str(self.gen_2_sb.value()) + ".jpg"),
-                      bp(ResetGeneratorDialog.TEMPLATE_DIR + "generated_reset_two.jpg"))
-        except FileNotFoundError:
-            pass
-
-        for i in range(ResetGenerator.CAPTURE_COUNT + 1):
-            try:
-                os.remove(bp(ResetGeneratorDialog.TEMPLATE_DIR + "generated_temp_" + str(i) + ".jpg"))
-            except FileNotFoundError:
-                pass
-
-        config.set_key("advanced", "reset_frame_one", bp(ResetGeneratorDialog.TEMPLATE_DIR + "generated_reset_one.jpg"))
-        config.set_key("advanced", "reset_frame_two", bp(ResetGeneratorDialog.TEMPLATE_DIR + "generated_reset_two.jpg"))
+        self._cleanup_temporary_templates()
+        config.set_key("advanced", "reset_frame_one", reset_one)
+        config.set_key("advanced", "reset_frame_two", reset_two)
         config.save_config()
+        self.applied.emit()
 
-        self._reset_generator.stop()
         self.hide()
 
     def cancel_clicked(self):
-        bp = resource_utils.base_path
-        for i in range(ResetGenerator.CAPTURE_COUNT):
-            try:
-                os.remove(bp(ResetGeneratorDialog.TEMPLATE_DIR + "generated_temp_" + str(i) + ".jpg"))
-            except FileNotFoundError:
-                pass
-
-        self._reset_generator.stop()
         self.hide()
 
     def on_generate(self):
-        bp = resource_utils.base_path
-        self.gen_1_px.setPixmap(QtGui.QPixmap(bp(ResetGeneratorDialog.TEMPLATE_DIR + "generated_temp_2.jpg")).scaledToWidth(251).scaledToHeight(137))
-        self.gen_2_px.setPixmap(QtGui.QPixmap(bp(ResetGeneratorDialog.TEMPLATE_DIR + "generated_temp_3.jpg")).scaledToWidth(251).scaledToHeight(137))
+        self.gen_1_px.setPixmap(QtGui.QPixmap(self._temporary_template_path(2)).scaledToWidth(251).scaledToHeight(137))
+        self.gen_2_px.setPixmap(QtGui.QPixmap(self._temporary_template_path(3)).scaledToWidth(251).scaledToHeight(137))
         self.gen_1_sb.setValue(2)
         self.gen_2_sb.setValue(3)
         self.generate_btn.setText("Generate")
@@ -248,23 +304,18 @@ class ResetGeneratorDialog(QtWidgets.QDialog):
         self.gen_2_sb.setEnabled(True)
 
     def gen_1_changed(self, value):
-        self.gen_1_px.setPixmap(QtGui.QPixmap(resource_utils.base_path(ResetGeneratorDialog.TEMPLATE_DIR + "generated_temp_" + str(value) + ".jpg")).scaledToWidth(251).scaledToHeight(137))
+        self.gen_1_px.setPixmap(QtGui.QPixmap(self._temporary_template_path(value)).scaledToWidth(251).scaledToHeight(137))
 
     def gen_2_changed(self, value):
-        self.gen_2_px.setPixmap(QtGui.QPixmap(resource_utils.base_path(ResetGeneratorDialog.TEMPLATE_DIR + "generated_temp_" + str(value) + ".jpg")).scaledToWidth(251).scaledToHeight(137))
+        self.gen_2_px.setPixmap(QtGui.QPixmap(self._temporary_template_path(value)).scaledToWidth(251).scaledToHeight(137))
 
     def closeEvent(self, event):
-        bp = resource_utils.base_path
-        for i in range(ResetGenerator.CAPTURE_COUNT):
-            try:
-                os.remove(bp(ResetGeneratorDialog.TEMPLATE_DIR + "generated_temp_" + str(i) + ".jpg"))
-            except FileNotFoundError:
-                pass
-
-        self._reset_generator.stop()
+        self._reopen_after_stop = False
+        self._stop_generator(cleanup=True)
         super().closeEvent(event)
 
     def on_error(self, error):
+        self._stop_generator()
         self.generate_btn.setText("Generate")
         self.generate_btn.setEnabled(True)
         self.apply_btn.setEnabled(False)
@@ -290,9 +341,11 @@ class ResetGenerator(QtCore.QThread):
     generated = QtCore.pyqtSignal()
     error = QtCore.pyqtSignal(str)
 
-    def __init__(self):
+    def __init__(self, template_dir):
         super().__init__()
         self._running = False
+        self._capture_released = False
+        self._template_dir = template_dir
         if config.get("game", "capture_source") == "device":
             self._game_capture = DeviceCapture(config.get("game", "device_index"), config.get("game", "game_region"),
                                                GAME_JP, config.get("game", "device_resolution"))
@@ -300,6 +353,10 @@ class ResetGenerator(QtCore.QThread):
         else:
             self._game_capture = GameCapture(config.get("game", "process_name"), config.get("game", "game_region"), GAME_JP)
             self._capture_name = config.get("game", "process_name")
+
+    @property
+    def template_dir(self):
+        return self._template_dir
 
     def run(self):
         self._running = True
@@ -312,9 +369,10 @@ class ResetGenerator(QtCore.QThread):
             c_time = time.time()
             try:
                 self._game_capture.capture()
-            except:
-                self.error.emit("Unable to capture " + self._capture_name)
-                self.stop()
+            except Exception:
+                if self._running:
+                    self.error.emit("Unable to capture " + self._capture_name)
+                self._running = False
                 break
 
             reset_region = self._game_capture.get_region(RESET_REGION)
@@ -337,13 +395,21 @@ class ResetGenerator(QtCore.QThread):
             except ValueError:
                 pass
 
-        os.makedirs(resource_utils.base_path(ResetGeneratorDialog.TEMPLATE_DIR), exist_ok=True)
+        self._release_capture()
+
+        if len(generated_frames) != self.CAPTURE_COUNT:
+            return
+        os.makedirs(self._template_dir, exist_ok=True)
         for i, frame in enumerate(generated_frames):
-            cv2.imwrite(resource_utils.base_path(ResetGeneratorDialog.TEMPLATE_DIR + "generated_temp_" + str(i + 1) + ".jpg"), frame)
+            cv2.imwrite(os.path.join(self._template_dir, f"temp_{i + 1}.jpg"), frame)
 
         self.generated.emit()
 
     def stop(self):
         self._running = False
+        self._release_capture()
 
-
+    def _release_capture(self):
+        if isinstance(self._game_capture, DeviceCapture) and not self._capture_released:
+            self._capture_released = True
+            self._game_capture.release()

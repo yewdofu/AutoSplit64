@@ -31,10 +31,12 @@ MANIFEST
 
 # Custom
 config.ini
+config.json
 .master_version
 misc/
 resources/game_preview.png
 templates/generated_reset_*.jpg
+templates/profiles/
 
 # PyInstaller
 #  Usually these files are written by a python script from a template

@@ -1,5 +1,5 @@
 import time
-from threading import Thread
+from threading import Event, Thread
 import logging
 
 import cv2
@@ -69,6 +69,7 @@ class Base(Thread):
 
         # Main Loop Toggle
         self._running = False
+        self._stop_event = Event()
 
         # Operation Mode
         self._operation_mode = as64.CONFIRMATION_MODE
@@ -230,13 +231,20 @@ class Base(Thread):
         return True
 
     def stop(self):
+        self._stop_event.set()
         self._running = False
+
+        if isinstance(self._game_capture, DeviceCapture):
+            self._game_capture.release()
 
         livesplit.disconnect(self._ls_socket)
 
     def run(self):
         try:
             self._running = True
+            if self._stop_event.is_set():
+                self._running = False
+                return
 
             valid = self.validity_check()
 
@@ -254,10 +262,15 @@ class Base(Thread):
                 try:
                     self._game_capture.capture()
                 except:
+                    if not self._running:
+                        break
                     if config.get("game", "capture_source") == "device":
                         self._error_occurred("Unable to capture from device (index " + str(config.get("game", "device_index")) + ")")
                     else:
                         self._error_occurred("Unable to capture " + config.get("game", "process_name"))
+
+                if not self._running:
+                    break
 
                 ls_index = max(livesplit.split_index(self._ls_socket), 0)
                 if ls_index != self.split_index():
@@ -286,6 +299,9 @@ class Base(Thread):
                     pass
         except Exception:
             self.logger.error("Fatal Error", exc_info=True)
+        finally:
+            if isinstance(self._game_capture, DeviceCapture):
+                self._game_capture.release()
 
     def analyze_xcam_status(self):
         xcam = self._game_capture.get_region(XCAM_REGION)

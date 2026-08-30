@@ -81,7 +81,7 @@ Please download the latest version [here](https://github.com/LiveSplit/LiveSplit
 
 To be able to run correctly, we must let AutoSplit 64 know where to capture.
 
-Make sure you have your capture software open (i.e., AmaRecTV), then open the Capture Editor (`Right-Click -> Edit Coordinates`):
+Make sure you have your capture software open (i.e., AmaRecTV), then open Capture Setup (`Right-Click -> Capture Setup`):
 
 <p>
   <a href="https://gitpoint.co/">
@@ -89,7 +89,9 @@ Make sure you have your capture software open (i.e., AmaRecTV), then open the Ca
   </a>
 </p>
 
-Select the desired process from the `Process` drop-down and position the `Game Region` selector as shown. Ensure you are as accurate as possible for best results.
+Select the desired process or video device and position the `Game Region` selector as shown. Ensure you are as accurate as possible for best results.
+
+Capture profiles store the capture source, resolution, coordinates, model, image thresholds, and reset templates for each environment. Use the profile controls at the top of Capture Setup to create or switch profiles.
 
 When finished, press `Apply` to save changes.
 
@@ -111,7 +113,7 @@ The Route Editor has been designed to look and function similar to the split edi
 
 If you encounter any issues, please run through all steps below.
 
-- Check capture coordinates are correct (`Right Click -> Edit Coordinates`)
+- Check capture coordinates and the active profile are correct (`Right Click -> Capture Setup`)
 - When using a video device, select a capture resolution that matches the source output
 - Ensure LiveSplit server is running (`Right Click LiveSplit -> Control -> Start Server`)
 - Check the correct route is loaded, and that the route file is accurate (i.e. correct star counts, fadeout/fadein counts)

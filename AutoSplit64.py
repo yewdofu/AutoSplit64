@@ -1,5 +1,5 @@
 import sys
-from threading import Thread
+from threading import Lock, Thread
 
 import onnxruntime  # must be imported in main thread before worker threads start
 
@@ -8,6 +8,7 @@ from PyQt5 import QtCore, QtWidgets, QtGui
 from as64gui.app import App
 
 import as64core
+from as64core import config
 from as64core.game_capture import open_video_device
 from as64core.processing import register_process, insert_global_hook, insert_global_processor_hook, ProcessorGenerator
 from as64core.route_loader import load
@@ -28,6 +29,10 @@ class AutoSplit64(QtCore.QObject):
         super().__init__(parent=parent)
 
         self._device_retrying = False
+        self._start_lock = Lock()
+        self._lifecycle_lock = Lock()
+        self._start_generation = 0
+        self._start_requested = False
 
         # Initialize GUI
         self.app = App()
@@ -37,7 +42,7 @@ class AutoSplit64(QtCore.QObject):
         self._updater.set_exit_listener(self)
 
         # Connections
-        self.app.start.connect(lambda: Thread(target=self.start).start())
+        self.app.start.connect(self.request_start)
         self.app.stop.connect(self.stop)
         self.app.destroyed.connect(self.stop)
         self.app.check_update.connect(lambda: Thread(target=self.check_for_update, args=(True,)).start())
@@ -56,16 +61,36 @@ class AutoSplit64(QtCore.QObject):
         else:
             self.update_found.emit({"found": False, "current": None, "latest": None, "override_ignore": override_ignore})
 
-    def start(self):
-        try:
-            self._start()
-        except Exception as e:
-            import traceback
-            print(traceback.format_exc())
-            self.error.emit(str(e))
-            self.app.set_started(False)
+    def request_start(self):
+        with self._lifecycle_lock:
+            base = getattr(as64core, "_base", None)
+            if self._start_requested and base is not None and base.is_alive():
+                return
+            self._start_generation += 1
+            generation = self._start_generation
+            self._start_requested = True
+        Thread(target=self.start, args=(generation,), daemon=True).start()
 
-    def _start(self):
+    def _is_start_requested(self, generation):
+        with self._lifecycle_lock:
+            return self._start_requested and generation == self._start_generation
+
+    def start(self, generation):
+        with self._start_lock:
+            previous_base = getattr(as64core, "_base", None)
+            if previous_base is not None and previous_base.is_alive():
+                previous_base.join()
+            if not self._is_start_requested(generation):
+                return
+            try:
+                self._start(generation)
+            except Exception as e:
+                import traceback
+                print(traceback.format_exc())
+                self.error.emit(str(e))
+                self.app.set_started(False)
+
+    def _start(self, generation):
         as64core.init()
 
         register_process("WAIT", ProcessWait())
@@ -129,10 +154,17 @@ class AutoSplit64(QtCore.QObject):
         as64core.set_error_listener(self.on_error)
         as64core.set_started_listener(self.on_started)
 
-        as64core.start()
+        with self._lifecycle_lock:
+            if self._start_requested and generation == self._start_generation:
+                as64core.start()
+            else:
+                as64core.stop()
 
     def stop(self):
         self._device_retrying = False
+        with self._lifecycle_lock:
+            self._start_requested = False
+            self._start_generation += 1
         as64core.stop()
 
     def on_started(self):

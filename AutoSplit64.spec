@@ -13,7 +13,7 @@ a = Analysis(
         ('resources', 'resources'),
         ('logic', 'logic'),
         ('templates', 'templates'),
-        ('defaults.ini', '.'),
+        ('defaults.json', '.'),
         ('.version', '.'),
     ],
     hiddenimports=[

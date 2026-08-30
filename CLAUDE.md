@@ -52,7 +52,7 @@ AutoSplit64.py          # QApplication entry point
         processing.py  # Processor/state machine
         route.py / route_loader.py
         livesplit.py   # TCP socket to LiveSplit Server
-        config.py      # defaults.ini + user config
+        config.py      # defaults.json + user config
 ```
 
 ### Key Modules
@@ -66,7 +66,7 @@ AutoSplit64.py          # QApplication entry point
 | `as64core/route.py` | Split data structure |
 | `as64core/route_loader.py` | Route file parsing |
 | `as64core/livesplit.py` | TCP socket commands to LiveSplit Server |
-| `as64core/config.py` | Config read/write (defaults.ini) |
+| `as64core/config.py` | Config read/write (defaults.json/config.json) |
 | `as64core/resource_utils.py` | Path resolution (dev + PyInstaller MEIPASS) |
 | `as64gui/` | All PyQt5 UI code |
 | `as64processes/` | Split processor implementations (standard, xcam, ddd, final) |
@@ -74,8 +74,8 @@ AutoSplit64.py          # QApplication entry point
 
 ### Configuration
 
-- `defaults.ini` — Default config (JSON). Includes model path, capture region, LiveSplit host/port, thresholds.
-- User config is written alongside `defaults.ini` at runtime.
+- `defaults.json` — Default config. Includes capture profiles, model paths, capture regions, LiveSplit host/port, and thresholds.
+- User config is written as `config.json` alongside the executable. Legacy `config.ini` files are migrated automatically.
 
 ### Build Pipeline
 
@@ -84,7 +84,7 @@ AutoSplit64.py          # QApplication entry point
 - `resources/` (GUI assets, ONNX model, icons)
 - `logic/` (`.processor` state machine files)
 - `templates/` (reset detection templates)
-- `defaults.ini`, `.version`
+- `defaults.json`, `.version`
 
 Output: `dist/AutoSplit64/AutoSplit64.exe` (onedir形式, ~270MB)
 

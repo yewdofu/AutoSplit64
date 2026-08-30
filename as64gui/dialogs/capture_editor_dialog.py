@@ -3,6 +3,8 @@ from PyQt5 import QtGui as QtGui
 from PyQt5 import QtCore as QtCore
 
 import cv2
+import os
+import shutil
 
 from as64core import capture_window, config
 from as64core import resource_utils
@@ -36,8 +38,10 @@ class CaptureEditor(QtWidgets.QDialog):
         self._device_worker = None
         self._preview_size = None
         self._reset_region_on_next_frame = False
+        self._draft = None
+        self._pending_template_copies = []
 
-        self.window_title = "Game Capture Editor"
+        self.window_title = "Capture Setup"
         self.setWindowIcon(QtGui.QIcon(resource_utils.resource_path(ICON_PATH)))
 
         # Layouts
@@ -55,6 +59,13 @@ class CaptureEditor(QtWidgets.QDialog):
         self.cancel_btn = QtWidgets.QPushButton("Cancel")
 
         # Left Panel Widgets
+        self.profile_lb = QtWidgets.QLabel("Profile:")
+        self.profile_combo = QtWidgets.QComboBox()
+        self.profile_new_btn = QtWidgets.QPushButton("New")
+        self.profile_duplicate_btn = QtWidgets.QPushButton("Duplicate")
+        self.profile_rename_btn = QtWidgets.QPushButton("Rename")
+        self.profile_delete_btn = QtWidgets.QPushButton("Delete")
+
         self.source_lb = QtWidgets.QLabel("Source:")
         self.source_combo = QtWidgets.QComboBox()
         self.source_combo.addItems(["Window", "Video Device"])
@@ -86,6 +97,7 @@ class CaptureEditor(QtWidgets.QDialog):
 
     def initialize(self):
         self.setWindowTitle(self.window_title)
+        self.setWindowModality(QtCore.Qt.ApplicationModal)
         self.resize(1200, 700)
 
         self.setLayout(self.main_layout)
@@ -104,6 +116,7 @@ class CaptureEditor(QtWidgets.QDialog):
         self.capture_btn.setDefault(False)
         self.capture_btn.setAutoDefault(False)
         self.source_combo.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
+        self.profile_combo.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
         self.process_combo.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
         self.device_combo.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
         self.resolution_combo.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
@@ -113,17 +126,28 @@ class CaptureEditor(QtWidgets.QDialog):
 
         self._refresh_process_list()
 
-        self.left_layout.addWidget(self.source_lb, 0, 0)
-        self.left_layout.addWidget(self.source_combo, 0, 1, 1, 2)
-        self.left_layout.addWidget(self.process_lb, 1, 0)
-        self.left_layout.addWidget(self.process_combo, 1, 1, 1, 2)
-        self.left_layout.addWidget(self.device_lb, 2, 0)
-        self.left_layout.addWidget(self.device_combo, 2, 1)
-        self.left_layout.addWidget(self.device_refresh_btn, 2, 2)
-        self.left_layout.addWidget(self.resolution_lb, 3, 0)
-        self.left_layout.addWidget(self.resolution_combo, 3, 1, 1, 2)
-        self.left_layout.addWidget(self.capture_btn, 4, 0, 1, 3)
-        self.left_layout.addItem(QtWidgets.QSpacerItem(20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding), 5, 0)
+        profile_buttons = QtWidgets.QGridLayout()
+        profile_buttons.setContentsMargins(0, 0, 0, 0)
+        profile_buttons.addWidget(self.profile_new_btn, 0, 0)
+        profile_buttons.addWidget(self.profile_duplicate_btn, 0, 1)
+        profile_buttons.addWidget(self.profile_rename_btn, 1, 0)
+        profile_buttons.addWidget(self.profile_delete_btn, 1, 1)
+
+        self.left_layout.addWidget(self.profile_lb, 0, 0)
+        self.left_layout.addWidget(self.profile_combo, 0, 1, 1, 2)
+        self.left_layout.addLayout(profile_buttons, 1, 0, 1, 3)
+        self.left_layout.addWidget(HLine(), 2, 0, 1, 3)
+        self.left_layout.addWidget(self.source_lb, 3, 0)
+        self.left_layout.addWidget(self.source_combo, 3, 1, 1, 2)
+        self.left_layout.addWidget(self.process_lb, 4, 0)
+        self.left_layout.addWidget(self.process_combo, 4, 1, 1, 2)
+        self.left_layout.addWidget(self.device_lb, 5, 0)
+        self.left_layout.addWidget(self.device_combo, 5, 1)
+        self.left_layout.addWidget(self.device_refresh_btn, 5, 2)
+        self.left_layout.addWidget(self.resolution_lb, 6, 0)
+        self.left_layout.addWidget(self.resolution_combo, 6, 1, 1, 2)
+        self.left_layout.addWidget(self.capture_btn, 7, 0, 1, 3)
+        self.left_layout.addItem(QtWidgets.QSpacerItem(20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding), 8, 0)
 
         # Right Widget
         self.apply_btn.setDefault(False)
@@ -141,6 +165,11 @@ class CaptureEditor(QtWidgets.QDialog):
 
         # Connections
         self.graphics_scene.item_update.connect(self.on_graphics_item_update)
+        self.profile_combo.currentIndexChanged.connect(self._on_profile_changed)
+        self.profile_new_btn.clicked.connect(self._create_profile)
+        self.profile_duplicate_btn.clicked.connect(self._duplicate_profile)
+        self.profile_rename_btn.clicked.connect(self._rename_profile)
+        self.profile_delete_btn.clicked.connect(self._delete_profile)
         self.source_combo.currentIndexChanged.connect(self._on_source_changed)
         self.capture_btn.clicked.connect(self.refresh_graphics_scene)
         self.apply_btn.clicked.connect(self.apply_clicked)
@@ -156,6 +185,186 @@ class CaptureEditor(QtWidgets.QDialog):
     def _is_device_mode(self):
         return self.source_combo.currentIndex() == 1
 
+    def _populate_profiles(self, selected_profile_id=None):
+        profile_id = selected_profile_id or config.get_active_capture_profile_id(self._draft)
+        self.profile_combo.blockSignals(True)
+        self.profile_combo.clear()
+        for item_id, name in config.get_capture_profiles(self._draft):
+            self.profile_combo.addItem(name, item_id)
+        index = self.profile_combo.findData(profile_id)
+        self.profile_combo.setCurrentIndex(max(index, 0))
+        self.profile_combo.blockSignals(False)
+        self.profile_delete_btn.setEnabled(self.profile_combo.count() > 1)
+
+    def _profile_name_input(self, title, initial_name=""):
+        name, accepted = QtWidgets.QInputDialog.getText(self, title, "Profile name:", text=initial_name)
+        return name.strip() if accepted else None
+
+    def _show_profile_error(self, error):
+        QtWidgets.QMessageBox.warning(self, "Capture Profile", str(error))
+
+    def _create_profile(self):
+        name = self._profile_name_input("New Capture Profile")
+        if name is None:
+            return
+        try:
+            self._store_active_profile()
+            reset_templates = self._active_reset_templates()
+            profile_id = config.create_capture_profile(
+                name, config.get_active_capture_profile_id(self._draft), self._draft
+            )
+            self._populate_profiles(profile_id)
+            self._activate_selected_profile()
+            self._copy_reset_templates(profile_id, reset_templates)
+        except (KeyError, ValueError) as error:
+            self._show_profile_error(error)
+
+    def _duplicate_profile(self):
+        current_name = self.profile_combo.currentText()
+        name = self._profile_name_input("Duplicate Capture Profile", current_name + " Copy")
+        if name is None:
+            return
+        try:
+            self._store_active_profile()
+            reset_templates = self._active_reset_templates()
+            profile_id = config.create_capture_profile(
+                name, config.get_active_capture_profile_id(self._draft), self._draft
+            )
+            self._populate_profiles(profile_id)
+            self._activate_selected_profile()
+            self._copy_reset_templates(profile_id, reset_templates)
+        except (KeyError, ValueError) as error:
+            self._show_profile_error(error)
+
+    def _rename_profile(self):
+        profile_id = self.profile_combo.currentData()
+        name = self._profile_name_input("Rename Capture Profile", self.profile_combo.currentText())
+        if name is None:
+            return
+        try:
+            config.rename_capture_profile(profile_id, name, self._draft)
+            self._populate_profiles(profile_id)
+        except (KeyError, ValueError) as error:
+            self._show_profile_error(error)
+
+    def _active_reset_templates(self):
+        return (
+            config.get("advanced", "reset_frame_one", self._draft),
+            config.get("advanced", "reset_frame_two", self._draft)
+        )
+
+    def _copy_reset_templates(self, profile_id, source_paths):
+        keys = ("reset_frame_one", "reset_frame_two")
+        names = ("reset_one.jpg", "reset_two.jpg")
+        destination_dir = resource_utils.base_path(os.path.join("templates", "profiles", profile_id))
+
+        for key, name, source_path in zip(keys, names, source_paths):
+            if source_path == config.get_default("advanced", key):
+                continue
+            for _, pending_source, pending_destination in reversed(self._pending_template_copies):
+                if source_path == pending_destination:
+                    source_path = pending_source
+            resolved_source = source_path if os.path.isabs(source_path) else resource_utils.resource_path(source_path)
+            if not os.path.isfile(resolved_source):
+                continue
+            destination = os.path.join(destination_dir, name).replace("\\", "/")
+            self._pending_template_copies.append((profile_id, resolved_source, destination))
+            config.set_key("advanced", key, destination, self._draft)
+
+    def _apply_pending_template_copies(self):
+        profile_ids = {profile_id for profile_id, _ in config.get_capture_profiles(self._draft)}
+        for profile_id, source, destination in self._pending_template_copies:
+            if profile_id not in profile_ids:
+                continue
+            os.makedirs(os.path.dirname(destination), exist_ok=True)
+            shutil.copyfile(source, destination)
+
+    def _delete_profile(self):
+        profile_id = self.profile_combo.currentData()
+        name = self.profile_combo.currentText()
+        answer = QtWidgets.QMessageBox.question(
+            self,
+            "Delete Capture Profile",
+            f'Delete the capture profile "{name}"? Generated reset templates will be kept.',
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.No
+        )
+        if answer != QtWidgets.QMessageBox.Yes:
+            return
+        try:
+            active_id = config.delete_capture_profile(profile_id, self._draft)
+            self._populate_profiles(active_id)
+            self._load_active_profile()
+        except (KeyError, ValueError) as error:
+            self._show_profile_error(error)
+
+    def _on_profile_changed(self, index):
+        if self._loading or index < 0:
+            return
+        self._store_active_profile()
+        self._activate_selected_profile()
+
+    def _activate_selected_profile(self):
+        profile_id = self.profile_combo.currentData()
+        if profile_id is None:
+            return
+        config.set_active_capture_profile(profile_id, self._draft)
+        self._load_active_profile()
+
+    def _store_active_profile(self):
+        try:
+            config.set_key("game", "game_region", self.game_region_panel.get_data(), self._draft)
+        except (TypeError, ValueError):
+            pass
+
+        config.set_key(
+            "game", "capture_source",
+            CAPTURE_SOURCE_DEVICE if self._is_device_mode() else CAPTURE_SOURCE_WINDOW,
+            self._draft
+        )
+        if self._preview_size:
+            config.set_key("game", "capture_size", list(self._preview_size), self._draft)
+
+        if self._is_device_mode():
+            device_index = self.device_combo.currentData()
+            if device_index is not None:
+                config.set_key("game", "device_index", device_index, self._draft)
+                config.set_key("game", "device_name", self.device_combo.currentText(), self._draft)
+            resolution = self.resolution_combo.currentData()
+            if resolution:
+                config.set_key("game", "device_resolution", list(resolution), self._draft)
+        elif self.process_combo.currentIndex() >= 0:
+            config.set_key("game", "process_name", self.process_combo.currentText(), self._draft)
+
+    def _load_active_profile(self):
+        self._loading = True
+        game_region = config.get("game", "game_region", self._draft)
+        self._set_game_region(*game_region)
+        self._preview_size = tuple(config.get("game", "capture_size", self._draft))
+
+        resolution = tuple(config.get("game", "device_resolution", self._draft))
+        resolution_index = self.resolution_combo.findData(resolution)
+        if resolution_index >= 0:
+            self.resolution_combo.setCurrentIndex(resolution_index)
+
+        process_name = config.get("game", "process_name", self._draft)
+        self._refresh_process_list(process_name)
+
+        source = config.get("game", "capture_source", self._draft)
+        self.source_combo.setCurrentIndex(0 if source == CAPTURE_SOURCE_WINDOW else 1)
+        self._on_source_changed(self.source_combo.currentIndex())
+
+        if source == CAPTURE_SOURCE_WINDOW:
+            process_index = self.process_combo.findText(process_name)
+            if process_index >= 0:
+                self.process_combo.setCurrentIndex(process_index)
+        else:
+            self.device_combo.clear()
+            self._refresh_device_list()
+
+        self._loading = False
+        self.refresh_graphics_scene()
+
     def _on_source_changed(self, index):
         is_device = (index == 1)
         self.process_lb.setVisible(not is_device)
@@ -165,7 +374,7 @@ class CaptureEditor(QtWidgets.QDialog):
         self.device_refresh_btn.setVisible(is_device)
         self.resolution_lb.setVisible(is_device)
         self.resolution_combo.setVisible(is_device)
-        if is_device and self.device_combo.count() == 0:
+        if is_device and not self._loading:
             self._refresh_device_list()
         if not self._loading:
             self.refresh_graphics_scene(reset_region=True)
@@ -182,10 +391,15 @@ class CaptureEditor(QtWidgets.QDialog):
         if not self._loading and index >= 0:
             self.refresh_graphics_scene(reset_region=True)
 
-    def _refresh_process_list(self):
+    def _refresh_process_list(self, saved_process_name=None):
         self.process_combo.clear()
         self._process_list = capture_window.get_visible_processes()
-        self.process_combo.addItems([proc[0].name() for proc in self._process_list])
+        for process, hwnd in self._process_list:
+            self.process_combo.addItem(process.name(), hwnd)
+        if saved_process_name and self.process_combo.findText(saved_process_name) < 0:
+            self.process_combo.addItem(saved_process_name, 0)
+        if saved_process_name:
+            self.process_combo.setCurrentIndex(self.process_combo.findText(saved_process_name))
 
     def _refresh_device_list(self):
         if self._device_worker is not None and self._device_worker.isRunning():
@@ -198,12 +412,19 @@ class CaptureEditor(QtWidgets.QDialog):
         self._device_worker.start()
 
     def _on_devices_found(self, devices):
-        saved_index = config.get("game", "device_index")
+        saved_index = config.get("game", "device_index", self._draft)
+        saved_name = config.get("game", "device_name", self._draft)
         self._device_list = devices
         self.device_combo.blockSignals(True)
         for i, name in devices:
             self.device_combo.addItem(name, i)
-        idx = self.device_combo.findData(saved_index)
+        idx = self.device_combo.findText(saved_name) if saved_name else -1
+        if idx < 0:
+            idx = self.device_combo.findData(saved_index)
+        if idx < 0:
+            unavailable_name = saved_name or f"Device {saved_index}"
+            self.device_combo.addItem(unavailable_name, saved_index)
+            idx = self.device_combo.count() - 1
         if idx >= 0:
             self.device_combo.setCurrentIndex(idx)
         self.device_combo.blockSignals(False)
@@ -213,34 +434,10 @@ class CaptureEditor(QtWidgets.QDialog):
             self.refresh_graphics_scene()
 
     def show(self):
-        self._loading = True
-        game_region = config.get('game', 'game_region')
-        self.game_region_selector.resize(game_region[2], game_region[3])
-        self.game_region_selector.setPos(game_region[0], game_region[1])
-        self.game_region_panel.update_text(*[str(v) for v in game_region])
-        self._preview_size = tuple(config.get("game", "capture_size"))
-
-        resolution = tuple(config.get("game", "device_resolution"))
-        resolution_index = self.resolution_combo.findData(resolution)
-        if resolution_index >= 0:
-            self.resolution_combo.setCurrentIndex(resolution_index)
-
-        # Set source from config
-        source = config.get("game", "capture_source")
-        self.device_combo.clear()
-        self.source_combo.setCurrentIndex(0 if source == CAPTURE_SOURCE_WINDOW else 1)
-        self._on_source_changed(self.source_combo.currentIndex())
-
-        if source == CAPTURE_SOURCE_WINDOW:
-            self._refresh_process_list()
-            p_name = config.get("game", "process_name")
-            for i in range(len(self._process_list)):
-                if self._process_list[i][0].name() == p_name:
-                    self.process_combo.setCurrentIndex(i)
-
-        self._loading = False
-        self.refresh_graphics_scene()
-        config.create_rollback()
+        self._draft = config.copy_config()
+        self._pending_template_copies = []
+        self._populate_profiles()
+        self._load_active_profile()
         super().show()
 
     def apply_clicked(self):
@@ -248,33 +445,45 @@ class CaptureEditor(QtWidgets.QDialog):
             if self.display_warning("The selected region is below the game's native resolution (320, 240). You may experience sub-optimal performance."):
                 return
 
-        config.set_key("game", "game_region", self.game_region_panel.get_data())
+        self._store_active_profile()
 
         if self._is_device_mode():
             device_data = self.device_combo.currentData()
             if device_data is not None:
                 resolution = self.resolution_combo.currentData()
-                config.set_key("game", "device_index", device_data)
-                config.set_key("game", "capture_source", CAPTURE_SOURCE_DEVICE)
-                config.set_key("game", "device_resolution", list(resolution))
+                config.set_key("game", "device_index", device_data, self._draft)
+                config.set_key("game", "device_name", self.device_combo.currentText(), self._draft)
+                config.set_key("game", "capture_source", CAPTURE_SOURCE_DEVICE, self._draft)
+                config.set_key("game", "device_resolution", list(resolution), self._draft)
                 cap = open_video_device(device_data, resolution)
-                if cap.isOpened():
-                    ret, frame = cap.read()
-                    if ret:
-                        h, w = frame.shape[:2]
-                    else:
-                        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                    config.set_key("game", "capture_size", [w, h])
+                try:
+                    if cap.isOpened():
+                        ret, frame = cap.read()
+                        if ret:
+                            h, w = frame.shape[:2]
+                        else:
+                            w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                            h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                        config.set_key("game", "capture_size", [w, h], self._draft)
+                finally:
                     cap.release()
         else:
-            config.set_key("game", "process_name", self.process_combo.currentText())
-            config.set_key("game", "capture_source", CAPTURE_SOURCE_WINDOW)
+            config.set_key("game", "process_name", self.process_combo.currentText(), self._draft)
+            config.set_key("game", "capture_source", CAPTURE_SOURCE_WINDOW, self._draft)
             try:
-                config.set_key("game", "capture_size", capture_window.get_capture_size(self._process_list[self.process_combo.currentIndex()][1]))
+                config.set_key(
+                    "game", "capture_size", capture_window.get_capture_size(self.process_combo.currentData()), self._draft
+                )
             except Exception:
                 pass
 
+        try:
+            self._apply_pending_template_copies()
+        except OSError as error:
+            self._show_profile_error(error)
+            return
+
+        config.replace_config(self._draft)
         config.save_config()
         self.applied.emit()
         self.close()
@@ -334,11 +543,7 @@ class CaptureEditor(QtWidgets.QDialog):
         self.game_region_panel.update_text(str(x), str(y), str(width), str(height))
 
     def _capture_window_frame(self):
-        selected_hwnd = 0
-        try:
-            selected_hwnd = self._process_list[self.process_combo.currentIndex()][1]
-        except (IndexError, AttributeError):
-            pass
+        selected_hwnd = self.process_combo.currentData() or 0
 
         if selected_hwnd:
             try:
@@ -351,15 +556,18 @@ class CaptureEditor(QtWidgets.QDialog):
         device_data = self.device_combo.currentData()
         if device_data is None:
             return None
+        cap = None
         try:
             cap = open_video_device(device_data, self.resolution_combo.currentData())
             if cap.isOpened():
                 ret, frame = cap.read()
                 if ret:
                     return frame
-            cap.release()
         except Exception:
             pass
+        finally:
+            if cap is not None:
+                cap.release()
         return None
 
     def _is_minimum_size(self):
@@ -367,7 +575,8 @@ class CaptureEditor(QtWidgets.QDialog):
         return region_data[2] >= 320 and region_data[3] >= 240
 
     def closeEvent(self, e):
-        config.rollback()
+        self._draft = None
+        self._pending_template_copies = []
         super().closeEvent(e)
 
     def display_warning(self, message, title="Warning"):

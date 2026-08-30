@@ -140,6 +140,7 @@ class App(QtWidgets.QMainWindow):
         self.dialogs["route_editor"].route_updated.connect(self._on_route_update)
         self.dialogs["settings_dialog"].applied.connect(self.settings_updated)
         self.dialogs["capture_editor"].applied.connect(self._reset)
+        self.dialogs["reset_dialog"].applied.connect(self._reset)
         self.dialogs["update_dialog"].ignore_btn.clicked.connect(lambda: self.ignore_update.emit())
         self.dialogs["update_dialog"].update_btn.clicked.connect(lambda: self.install_update.emit())
 
@@ -286,7 +287,7 @@ class App(QtWidgets.QMainWindow):
         edit_route = context_menu.addAction("Edit Route")
         context_menu.addMenu(route_menu)
         context_menu.addSeparator()
-        cords_action = context_menu.addAction("Edit Coordinates")
+        cords_action = context_menu.addAction("Capture Setup...")
         context_menu.addSeparator()
         advanced_action = context_menu.addAction("Settings")
         context_menu.addSeparator()
