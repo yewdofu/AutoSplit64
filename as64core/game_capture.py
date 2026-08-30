@@ -36,10 +36,8 @@ class _BaseCaptureSource:
         self._game_image = None
         self._region_images: dict = {}
 
-        # Target size is always 4:3; height is preserved and width is adjusted
-        gh = game_region[3]
-        target_w = int(round(gh * 4 / 3))
-        self._target_size = (target_w, gh)
+        # Target size is fixed to 4:3 (640x480)
+        self._target_size = (640, 480)
 
         self._add_default_regions()
 

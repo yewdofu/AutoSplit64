@@ -119,7 +119,7 @@ If you encounter any issues, please run through all steps below.
 - Enlarge your game capture window if it is very small
 - Make sure the capture's colour settings (i.e. saturation) are default or close to default
 - If using an unpowered splitter, compare the whiteness of your star select screens to other players. If it is extremely dull you may need to increase your capture brightness
-- Ensure your capture is set to a 4:3 aspect ratio (or close to)
+- Ensure your capture region contains only the game image, excluding black bars or the window frame; it is internally normalized to 640x480
 
 ## Running/Building From Source
 
