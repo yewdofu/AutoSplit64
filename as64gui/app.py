@@ -324,7 +324,13 @@ class App(QtWidgets.QMainWindow):
         elif action == advanced_action:
             self.dialogs["settings_dialog"].show()
         elif action == reset_gen_action:
-            self.dialogs["reset_dialog"].show()
+            if self.start_btn.get_state() == "start":
+                self.dialogs["reset_dialog"].show()
+            else:
+                self.display_error_message(
+                    "Stop autosplit before generating reset templates.",
+                    "Capture In Use"
+                )
         elif action == output_action:
             self.dialogs["output_dialog"].show()
         elif action == on_top_action:
