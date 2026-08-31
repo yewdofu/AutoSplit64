@@ -203,6 +203,11 @@ func (u *UpdaterWindow) extract() error {
 	}
 	defer r.Close()
 
+	basePath, err := filepath.Abs(".")
+	if err != nil {
+		return err
+	}
+
 	var totalSize int64
 	for _, f := range r.File {
 		totalSize += int64(f.UncompressedSize64)
@@ -213,7 +218,7 @@ func (u *UpdaterWindow) extract() error {
 
 	var done int64
 	for _, f := range r.File {
-		if err := extractFile(f); err != nil {
+		if err := extractFile(f, basePath); err != nil {
 			return err
 		}
 		done += int64(f.UncompressedSize64)
@@ -222,21 +227,29 @@ func (u *UpdaterWindow) extract() error {
 	return nil
 }
 
-func extractFile(f *zip.File) error {
+func extractFile(f *zip.File, basePath string) error {
 	name := filepath.FromSlash(f.Name)
+	if filepath.IsAbs(name) {
+		return fmt.Errorf("illegal file path in zip: %s", f.Name)
+	}
+
+	dst := filepath.Clean(filepath.Join(basePath, name))
+	if dst != basePath && !strings.HasPrefix(dst, basePath+string(os.PathSeparator)) {
+		return fmt.Errorf("illegal file path in zip: %s", f.Name)
+	}
 
 	if f.FileInfo().IsDir() {
-		return os.MkdirAll(name, 0755)
+		return os.MkdirAll(dst, 0755)
 	}
-	if err := os.MkdirAll(filepath.Dir(name), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 		return err
 	}
 
-	dst, err := os.Create(name)
+	out, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
-	defer dst.Close()
+	defer out.Close()
 
 	src, err := f.Open()
 	if err != nil {
@@ -244,6 +257,6 @@ func extractFile(f *zip.File) error {
 	}
 	defer src.Close()
 
-	_, err = io.Copy(dst, src)
+	_, err = io.Copy(out, src)
 	return err
 }
