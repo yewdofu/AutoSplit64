@@ -60,11 +60,13 @@ dependencies = [
 ]
 
 [package.dev-dependencies]
-dev = [
-    { name = "pyinstaller" },
+convert = [
     { name = "tensorflow" },
     { name = "tf-keras" },
     { name = "tf2onnx" },
+]
+dev = [
+    { name = "pyinstaller" },
 ]
 
 [package.metadata]
@@ -80,12 +82,12 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = [
-    { name = "pyinstaller", specifier = ">=6.0" },
+convert = [
     { name = "tensorflow", specifier = ">=2.16" },
     { name = "tf-keras", specifier = ">=2.21.0" },
     { name = "tf2onnx", specifier = ">=1.16" },
 ]
+dev = [{ name = "pyinstaller", specifier = ">=6.0" }]
 
 [[package]]
 name = "certifi"
