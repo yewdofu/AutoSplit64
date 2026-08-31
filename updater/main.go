@@ -203,7 +203,12 @@ func (u *UpdaterWindow) extract() error {
 	}
 	defer r.Close()
 
-	tmpDir, err := os.MkdirTemp(".", ".as64update-tmp")
+	basePath, err := filepath.Abs(".")
+	if err != nil {
+		return err
+	}
+
+	tmpDir, err := os.MkdirTemp(basePath, ".as64update-tmp")
 	if err != nil {
 		return err
 	}
@@ -219,31 +224,48 @@ func (u *UpdaterWindow) extract() error {
 
 	var done int64
 	for _, f := range r.File {
-		if err := extractFile(tmpDir, f); err != nil {
+		if err := extractFile(f, basePath, tmpDir); err != nil {
 			return err
 		}
 		done += int64(f.UncompressedSize64)
 		u.setProgress(int(done * 100 / totalSize))
 	}
 
-	return replaceFiles(tmpDir)
+	return replaceFiles(tmpDir, basePath)
 }
 
-func extractFile(basePath string, f *zip.File) error {
-	name := filepath.Join(basePath, filepath.FromSlash(f.Name))
-
-	if f.FileInfo().IsDir() {
-		return os.MkdirAll(name, 0755)
+// extractFile validates that the entry resolves inside basePath, then writes
+// it to the same relative location under tmpDir so replaceFiles can move it
+// into place with a path that has already been checked.
+func extractFile(f *zip.File, basePath, tmpDir string) error {
+	name := filepath.FromSlash(f.Name)
+	if filepath.IsAbs(name) {
+		return fmt.Errorf("illegal file path in zip: %s", f.Name)
 	}
-	if err := os.MkdirAll(filepath.Dir(name), 0755); err != nil {
-		return err
+
+	dst := filepath.Clean(filepath.Join(basePath, name))
+	if dst != basePath && !strings.HasPrefix(dst, basePath+string(os.PathSeparator)) {
+		return fmt.Errorf("illegal file path in zip: %s", f.Name)
 	}
 
-	dst, err := os.Create(name)
+	rel, err := filepath.Rel(basePath, dst)
 	if err != nil {
 		return err
 	}
-	defer dst.Close()
+	extractPath := filepath.Join(tmpDir, rel)
+
+	if f.FileInfo().IsDir() {
+		return os.MkdirAll(extractPath, 0755)
+	}
+	if err := os.MkdirAll(filepath.Dir(extractPath), 0755); err != nil {
+		return err
+	}
+
+	out, err := os.Create(extractPath)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
 
 	src, err := f.Open()
 	if err != nil {
@@ -251,11 +273,11 @@ func extractFile(basePath string, f *zip.File) error {
 	}
 	defer src.Close()
 
-	_, err = io.Copy(dst, src)
+	_, err = io.Copy(out, src)
 	return err
 }
 
-func replaceFiles(tmpDir string) error {
+func replaceFiles(tmpDir, basePath string) error {
 	return filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -267,7 +289,7 @@ func replaceFiles(tmpDir string) error {
 		if rel == "." {
 			return nil
 		}
-		dest := filepath.Join(".", rel)
+		dest := filepath.Join(basePath, rel)
 		if info.IsDir() {
 			return os.MkdirAll(dest, 0755)
 		}
