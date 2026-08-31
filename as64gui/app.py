@@ -9,7 +9,7 @@ import requests
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from as64core import route_loader, config
-from as64core.resource_utils import base_path, resource_path, absolute_path, rel_to_abs
+from as64core.resource_utils import user_data_path, resource_path, rel_to_abs
 from . import constants
 from .widgets import PictureButton, StateButton, StarCountDisplay, SplitListWidget
 from .dialogs import AboutDialog, CaptureEditor, SettingsDialog, RouteEditor, ResetGeneratorDialog, UpdateDialog, OutputDialog
@@ -236,7 +236,7 @@ class App(QtWidgets.QMainWindow):
 
     def open_route_browser(self):
         """ Show native file dialog to select a .route file for use. """
-        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Open Route", base_path("routes"),
+        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Open Route", user_data_path("routes"),
                                                              "AS64 Route Files (*.as64)")
 
         if file_path:
@@ -389,7 +389,7 @@ class App(QtWidgets.QMainWindow):
     def _load_route_dir(self):
         self._routes = {}
 
-        routes_dir = base_path("routes")
+        routes_dir = user_data_path("routes")
         if not os.path.isdir(routes_dir):
             os.makedirs(routes_dir)
             return
