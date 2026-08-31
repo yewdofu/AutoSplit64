@@ -193,30 +193,33 @@ class App(QtWidgets.QMainWindow):
             self.start_btn.setEnabled(True)
         self.start_btn.repaint()
 
-    def open_route(self):
-        self._reset()
-
-        if config.get("route", "path") == "":
-            return
-
+    @staticmethod
+    def _load_and_validate_route(route_path):
+        """
+        Load and validate a route file with no side effects - no config
+        writes, no display changes, no core restart. Testable directly with
+        just a file path.
+        Returns (route, error_message, route_missing). route_missing is True
+        only when the file itself couldn't be loaded (as opposed to loading
+        but failing validation) - callers only re-scan the routes directory
+        and clear the configured path in that case, not on a validation error.
+        """
         #try:
-        route = route_loader.load(config.get("route", "path"))
+        route = route_loader.load(route_path)
         # except KeyError:
-        #     self.display_error_message("Key Error", "Route Error")
-        #     return False
+        #     return None, "Key Error", True
 
         if not route:
-            self.display_error_message("Could not load route", "Route Error")
-            self._load_route_dir()
-            self._set_and_save("route", "path", "")
-            return False
+            return None, "Could not load route", True
 
         error = route_loader.validate_route(route)
-
         if error:
-            self.display_error_message(error, "Route Error")
-            return False
+            return None, error, False
 
+        return route, None, False
+
+    def _display_route(self, route):
+        """Apply an already-validated route to the display widgets."""
         self.route = route
 
         self.split_list.clear()
@@ -235,6 +238,25 @@ class App(QtWidgets.QMainWindow):
             self.split_list.add_split(split.title, icon)
 
         self.split_list.repaint()
+
+    def open_route(self):
+        """Load and display whichever route is currently configured (startup, or after RouteEditor saves)."""
+        self._reset()
+
+        route_path = config.get("route", "path")
+        if route_path == "":
+            return None
+
+        route, error, route_missing = self._load_and_validate_route(route_path)
+
+        if error:
+            self.display_error_message(error, "Route Error")
+            if route_missing:
+                self._load_route_dir()
+                self._set_and_save("route", "path", "")
+            return False
+
+        self._display_route(route)
 
         return True
 
@@ -415,15 +437,20 @@ class App(QtWidgets.QMainWindow):
         self.open_route()
 
     def _save_open_route(self, file_path):
-        prev_route = config.get("route", "path")
-        self._set_and_save("route", "path", file_path)
-        success = self.open_route()
+        """
+        Switch the active route to file_path. Validates first - config, the
+        displayed route, and the core restart are only touched once, and
+        only on success, so an invalid pick leaves everything as it was.
+        """
+        route, error, _ = self._load_and_validate_route(file_path)
 
-        if success:
+        if error:
+            self.display_error_message(error, "Route Error")
             return
-        else:
-            self._set_and_save("route", "path", prev_route)
-            self.open_route()
+
+        self._set_and_save("route", "path", file_path)
+        self._display_route(route)
+        self._reset()
 
     def _reset(self):
         if self.start_btn.get_state() == "stop":
