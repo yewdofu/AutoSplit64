@@ -203,6 +203,12 @@ func (u *UpdaterWindow) extract() error {
 	}
 	defer r.Close()
 
+	tmpDir, err := os.MkdirTemp(".", ".as64update-tmp")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmpDir)
+
 	var totalSize int64
 	for _, f := range r.File {
 		totalSize += int64(f.UncompressedSize64)
@@ -213,17 +219,18 @@ func (u *UpdaterWindow) extract() error {
 
 	var done int64
 	for _, f := range r.File {
-		if err := extractFile(f); err != nil {
+		if err := extractFile(tmpDir, f); err != nil {
 			return err
 		}
 		done += int64(f.UncompressedSize64)
 		u.setProgress(int(done * 100 / totalSize))
 	}
-	return nil
+
+	return replaceFiles(tmpDir)
 }
 
-func extractFile(f *zip.File) error {
-	name := filepath.FromSlash(f.Name)
+func extractFile(basePath string, f *zip.File) error {
+	name := filepath.Join(basePath, filepath.FromSlash(f.Name))
 
 	if f.FileInfo().IsDir() {
 		return os.MkdirAll(name, 0755)
@@ -246,4 +253,27 @@ func extractFile(f *zip.File) error {
 
 	_, err = io.Copy(dst, src)
 	return err
+}
+
+func replaceFiles(tmpDir string) error {
+	return filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(tmpDir, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		dest := filepath.Join(".", rel)
+		if info.IsDir() {
+			return os.MkdirAll(dest, 0755)
+		}
+		if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
+			return err
+		}
+		return os.Rename(path, dest)
+	})
 }
