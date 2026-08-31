@@ -10,12 +10,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/lxn/walk"
 	. "github.com/lxn/walk/declarative"
 	"github.com/lxn/win"
+	"golang.org/x/sys/windows"
 )
-
 
 const (
 	apiURL    = "https://api.github.com/repos/yewdofu/AutoSplit64/releases/latest"
@@ -208,6 +209,11 @@ func (u *UpdaterWindow) extract() error {
 		return err
 	}
 
+	selfExe, err := selfExecutablePath()
+	if err != nil {
+		return err
+	}
+
 	tmpDir, err := os.MkdirTemp(basePath, ".as64update-tmp")
 	if err != nil {
 		return err
@@ -231,7 +237,7 @@ func (u *UpdaterWindow) extract() error {
 		u.setProgress(int(done * 100 / totalSize))
 	}
 
-	return replaceFiles(tmpDir, basePath)
+	return replaceFiles(tmpDir, basePath, selfExe)
 }
 
 // extractFile validates that the entry resolves inside basePath, then writes
@@ -277,8 +283,9 @@ func extractFile(f *zip.File, basePath, tmpDir string) error {
 	return err
 }
 
-func replaceFiles(tmpDir, basePath string) error {
-	return filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
+func replaceFiles(tmpDir, basePath, selfExe string) error {
+	var selfFound bool
+	err := filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -296,6 +303,49 @@ func replaceFiles(tmpDir, basePath string) error {
 		if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
 			return err
 		}
+		if selfExe != "" && samePath(dest, selfExe) {
+			selfFound = true
+			return os.Rename(path, filepath.Join(basePath, "Updater.exe.new"))
+		}
 		return os.Rename(path, dest)
 	})
+	if err != nil {
+		return err
+	}
+	if selfFound {
+		launchSelfReplacement(filepath.Join(basePath, "Updater.exe.new"), selfExe)
+	}
+	return nil
+}
+
+// selfExecutablePath returns the normalized absolute path of the currently
+// running executable (this Updater.exe).
+func selfExecutablePath() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	abs, err := filepath.Abs(exe)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(abs), nil
+}
+
+// samePath compares two file paths ignoring case, which is required on
+// Windows where paths are case-insensitive.
+func samePath(a, b string) bool {
+	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
+}
+
+// launchSelfReplacement spawns a detached process that, after a short delay,
+// overwrites the running Updater.exe with the staged Updater.exe.new. It must
+// outlive the parent process, hence no Wait and DETACHED_PROCESS is used.
+func launchSelfReplacement(newPath, selfExe string) {
+	cmdStr := fmt.Sprintf(`ping 127.0.0.1 -n 2 > nul & move /Y "%s" "%s"`, newPath, selfExe)
+	cmd := exec.Command("cmd.exe", "/c", cmdStr)
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		CreationFlags: windows.CREATE_NEW_PROCESS_GROUP | windows.DETACHED_PROCESS,
+	}
+	cmd.Start()
 }
