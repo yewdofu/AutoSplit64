@@ -10,12 +10,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 
 	"github.com/lxn/walk"
 	. "github.com/lxn/walk/declarative"
 	"github.com/lxn/win"
-	"golang.org/x/sys/windows"
 )
 
 const (
@@ -214,6 +212,11 @@ func (u *UpdaterWindow) extract() error {
 		return err
 	}
 
+	// Clean up the ".old" residue left by a previous self-replacement. It is
+	// usually gone by now, but removal can fail while the old image is still
+	// mapped into memory; that error is ignored.
+	_ = os.Remove(selfExe + ".old")
+
 	tmpDir, err := os.MkdirTemp(basePath, ".as64update-tmp")
 	if err != nil {
 		return err
@@ -284,8 +287,7 @@ func extractFile(f *zip.File, basePath, tmpDir string) error {
 }
 
 func replaceFiles(tmpDir, basePath, selfExe string) error {
-	var selfFound bool
-	err := filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
+	return filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -304,18 +306,10 @@ func replaceFiles(tmpDir, basePath, selfExe string) error {
 			return err
 		}
 		if selfExe != "" && samePath(dest, selfExe) {
-			selfFound = true
-			return os.Rename(path, filepath.Join(basePath, "Updater.exe.new"))
+			return replaceSelf(path, selfExe)
 		}
 		return os.Rename(path, dest)
 	})
-	if err != nil {
-		return err
-	}
-	if selfFound {
-		launchSelfReplacement(filepath.Join(basePath, "Updater.exe.new"), selfExe)
-	}
-	return nil
 }
 
 // selfExecutablePath returns the normalized absolute path of the currently
@@ -338,14 +332,21 @@ func samePath(a, b string) bool {
 	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
 }
 
-// launchSelfReplacement spawns a detached process that, after a short delay,
-// overwrites the running Updater.exe with the staged Updater.exe.new. It must
-// outlive the parent process, hence no Wait and DETACHED_PROCESS is used.
-func launchSelfReplacement(newPath, selfExe string) {
-	cmdStr := fmt.Sprintf(`ping 127.0.0.1 -n 2 > nul & move /Y "%s" "%s"`, newPath, selfExe)
-	cmd := exec.Command("cmd.exe", "/c", cmdStr)
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		CreationFlags: windows.CREATE_NEW_PROCESS_GROUP | windows.DETACHED_PROCESS,
+// replaceSelf swaps the running Updater.exe for the staged replacement.
+// Windows permits renaming an executable image that is currently in use, so the
+// running file is first moved aside to ".old". The new file then takes its
+// place via an ordinary rename, and removal of the old file is attempted
+// best-effort (it may still be mapped into memory, in which case deletion fails
+// with "Access is denied"; that is fine and the file is cleaned up on a later
+// run).
+func replaceSelf(newPath, selfExe string) error {
+	oldExe := selfExe + ".old"
+	if err := os.Rename(selfExe, oldExe); err != nil {
+		return err
 	}
-	cmd.Start()
+	if err := os.Rename(newPath, selfExe); err != nil {
+		return err
+	}
+	_ = os.Remove(oldExe)
+	return nil
 }
