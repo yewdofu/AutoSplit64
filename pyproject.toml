@@ -20,6 +20,7 @@ dev = [
     "tf2onnx>=1.16",
     "tensorflow>=2.16",
     "tf-keras>=2.21.0",
+    "pytest>=9.1.1",
 ]
 
 [tool.uv]
@@ -27,3 +28,6 @@ constraint-dependencies = [
     # PyQt5-Qt5 5.15.3+ dropped Windows wheels; pin to last working version
     "PyQt5-Qt5==5.15.2",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
