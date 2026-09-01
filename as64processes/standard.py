@@ -77,6 +77,8 @@ class ProcessRunStart(Process):
         return self.signals["LOOP"]
 
     def on_transition(self):
+        self._prev_prediction = -1
+        self._jump_predictions = 0
         as64core.enable_fade_count(False)
         as64core.fps = 6
 
@@ -124,6 +126,8 @@ class ProcessRunStartUpSegment(Process):
         return self.signals["LOOP"]
 
     def on_transition(self):
+        self._prev_prediction = -1
+        self._jump_predictions = 0
         as64core.enable_fade_count(False)
         as64core.fps = 6
 
@@ -460,57 +464,62 @@ class ProcessFileSelectSplit(Process):
 
         if as64core.fade_status in (as64core.FADEOUT_COMPLETE, as64core.FADEOUT_PARTIAL):
             return self.signals["FADEOUT"]
-        else:
-            if as64core.split_index() > 0:
-                prev_split_star = as64core.route.splits[as64core.split_index() - 1].star_count
-            else:
-                prev_split_star = as64core.route.initial_star
 
-            if as64core.prediction_info.prediction == as64core.star_count and as64core.prediction_info.probability > config.get(
-                    "thresholds", "probability_threshold"):
+        # File Select timing is normally armed while the file-select screen is
+        # already visible.  Waiting for the second fade-in made that workflow
+        # impossible because selecting the file produces the first fade-in
+        # seen by this Base instance.
+        if as64core.fadein_count >= 1 and self._has_file_select_transition_colour(region):
+            try:
+                time.sleep(self._restart_split_delay)
+            except ValueError:
+                pass
+            as64core.fadein_count = 0
+            as64core.fadeout_count = 0
+            as64core.split()
+            as64core.set_in_game(True)
+            return self.signals["COMPLETE"]
+
+        if as64core.split_index() > 0:
+            prev_split_star = as64core.route.splits[as64core.split_index() - 1].star_count
+        else:
+            prev_split_star = as64core.route.initial_star
+
+        if as64core.prediction_info.prediction == as64core.star_count and as64core.prediction_info.probability > config.get(
+                "thresholds", "probability_threshold"):
+            as64core.enable_fade_count(True)
+            as64core.enable_xcam_count(True)
+            as64core.set_in_game(True)
+            return self.signals["COMPLETE"]
+        elif self._star_skip_enabled and prev_split_star <= as64core.prediction_info.prediction <= as64core.current_split().star_count and as64core.prediction_info.probability > config.get(
+                "thresholds", "probability_threshold"):
+            if as64core.prediction_info.prediction == self._prev_prediction:
+                self._jump_predictions += 1
+            else:
+                self._jump_predictions = 0
+
+            if self._jump_predictions >= 4:
                 as64core.enable_fade_count(True)
                 as64core.enable_xcam_count(True)
+                as64core.set_star_count(as64core.prediction_info.prediction)
+                self._jump_predictions = 0
+                self._prev_prediction = -1
                 as64core.set_in_game(True)
                 return self.signals["COMPLETE"]
-            elif self._star_skip_enabled and prev_split_star <= as64core.prediction_info.prediction <= as64core.current_split().star_count and as64core.prediction_info.probability > config.get(
-                    "thresholds", "probability_threshold"):
-                if as64core.prediction_info.prediction == self._prev_prediction:
-                    self._jump_predictions += 1
-                else:
-                    self._jump_predictions = 0
 
-                if self._jump_predictions >= 4:
-                    as64core.enable_fade_count(True)
-                    as64core.enable_xcam_count(True)
-                    as64core.set_star_count(as64core.prediction_info.prediction)
-                    self._jump_predictions = 0
-                    self._prev_prediction = -1
-                    as64core.set_in_game(True)
-                    return self.signals["COMPLETE"]
-
-                self._prev_prediction = as64core.prediction_info.prediction
-
-        if as64core.fadein_count == 2:
-            region_int = region.astype(int)
-            region_int_b, region_int_g, region_int_r = region_int.transpose(2, 0, 1)
-            mask = (np.abs(region_int_r - region_int_g) > 25)
-
-            region[mask] = [0, 0, 0]
-
-            if np.any(region == [0, 0, 0]):
-                try:
-                    time.sleep(self._restart_split_delay)
-                except ValueError:
-                    pass
-                as64core.fadein_count = 0
-                as64core.fadeout_count = 0
-                as64core.split()
-                as64core.set_in_game(True)
-                return self.signals["COMPLETE"]
+            self._prev_prediction = as64core.prediction_info.prediction
 
         return self.signals["LOOP"]
 
+    @staticmethod
+    def _has_file_select_transition_colour(region):
+        region_int = region.astype(int)
+        _, region_int_g, region_int_r = region_int.transpose(2, 0, 1)
+        return np.any(np.abs(region_int_r - region_int_g) > 25)
+
     def on_transition(self):
+        self._prev_prediction = -1
+        self._jump_predictions = 0
         super().on_transition()
         as64core.fps = 29.97
         as64core.enable_fade_count(True)

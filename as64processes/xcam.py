@@ -1,10 +1,5 @@
-import cv2
-import numpy as np
-import time
-
 import as64core
 
-from as64core.image_utils import is_black
 from as64core.processing import Process
 
 
@@ -43,8 +38,6 @@ class ProcessXCamStartUpSegment(Process):
         super().__init__()
         self.register_signal("FADEOUT")
         self.register_signal("START")
-        self.lower_bound = [0, 0, 50]
-        self.upper_bound = [30, 40, 200]
 
         self._predictions = True
 
@@ -52,27 +45,24 @@ class ProcessXCamStartUpSegment(Process):
         if as64core.fade_status in (as64core.FADEOUT_PARTIAL, as64core.FADEOUT_COMPLETE):
             return self.signals["FADEOUT"]
 
-        if as64core.fadeout_count == 1:
+        # Base already applies the capture profile's configurable X-Cam
+        # thresholds.  Reusing that result avoids a second, much narrower
+        # hard-coded colour test that was especially fragile with compressed
+        # or colour-shifted capture sources.
+        if as64core.fadeout_count >= 1 and as64core.in_xcam:
             as64core.fps = 29.97
             as64core.enable_predictions(not self._predictions)
-            xcam = as64core.get_region(as64core.XCAM_REGION)
-            lower = np.array(self.lower_bound, dtype="uint8")
-            upper = np.array(self.upper_bound, dtype="uint8")
-
-            mask = cv2.inRange(xcam, lower, upper)
-            output = cv2.bitwise_and(xcam, xcam, mask=mask)
-
-            if not is_black(output, 0.1, 0.7):
-                as64core.split()
-                as64core.fps = 10
-                as64core.fadeout_count = 0
-                as64core.set_in_game(True)
-                return self.signals["START"]
+            as64core.split()
+            as64core.fps = 10
+            as64core.fadeout_count = 0
+            as64core.set_in_game(True)
+            return self.signals["START"]
 
         return self.signals["LOOP"]
 
     def on_transition(self):
         as64core.fps = 10
         as64core.enable_predictions(True)
+        as64core.enable_xcam_count(True)
 
         super().on_transition()
