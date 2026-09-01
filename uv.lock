@@ -57,6 +57,7 @@ dependencies = [
     { name = "pyqt5" },
     { name = "pywin32" },
     { name = "pywin32-ctypes" },
+    { name = "requests" },
 ]
 
 [package.dev-dependencies]
@@ -80,6 +81,7 @@ requires-dist = [
     { name = "pyqt5", specifier = ">=5.15.10" },
     { name = "pywin32", specifier = ">=306" },
     { name = "pywin32-ctypes", specifier = ">=0.2.2" },
+    { name = "requests", specifier = ">=2.31" },
 ]
 
 [package.metadata.requires-dev]

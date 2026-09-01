@@ -12,6 +12,7 @@ dependencies = [
     "psutil>=5.9",
     "onnxruntime>=1.17",
     "pygrabber>=0.2",
+    "requests>=2.31",
 ]
 
 [dependency-groups]
