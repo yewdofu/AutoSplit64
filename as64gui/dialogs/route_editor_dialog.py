@@ -459,116 +459,128 @@ class RouteEditor(QtWidgets.QMainWindow):
 
         self.save()
 
+    @staticmethod
+    def _row_to_split(row_number, title, star_count_text, fadeouts_text, fadeins_text, xcam_text, split_type, icon_path):
+        """
+        Pure conversion from one split table row's raw values to a Split (or
+        an error message naming the offending row/column). Has no Qt
+        dependency, so it can be tested directly with plain strings instead
+        of a populated QTableWidget.
+        Returns (split, error_message, error_column).
+        """
+        if len(title) <= 0:
+            return None, "Invalid Title - Row: " + str(row_number), 1
+
+        try:
+            star_count = int(star_count_text)
+        except (ValueError, TypeError):
+            if split_type != SPLIT_FADE_ONLY:
+                return None, "Invalid Star Count - Row: " + str(row_number), 2
+            star_count = -1
+
+        try:
+            fadeouts = int(fadeouts_text)
+        except (ValueError, TypeError):
+            if split_type == SPLIT_NORMAL:
+                return None, "Invalid Fadeout - Row: " + str(row_number), 3
+            fadeouts = -1
+
+        try:
+            fadeins = int(fadeins_text)
+        except (ValueError, TypeError):
+            if split_type == SPLIT_NORMAL:
+                return None, "Invalid Fadein - Row: " + str(row_number), 4
+            fadeins = -1
+
+        try:
+            xcam = int(xcam_text)
+        except (ValueError, TypeError):
+            if split_type == SPLIT_XCAM:
+                return None, "Invalid XCam - Row: " + str(row_number), 5
+            xcam = -1
+
+        return Split(title, star_count, fadeouts, fadeins, xcam, split_type, icon_path or ""), None, None
+
+    @staticmethod
+    def _build_route(route_path, title, splits, initial_star_text, version, category, timing):
+        """
+        Pure conversion from raw route-level field values to a Route (or an
+        error message). No Qt dependency.
+        Returns (route, error_message).
+        """
+        if len(title) <= 0:
+            return None, "Invalid Route Title"
+
+        try:
+            initial_star = int(initial_star_text)
+        except (ValueError, TypeError):
+            return None, "Invalid Initial Star"
+
+        route = Route(route_path, title, splits, initial_star, version, category, timing)
+        route_error = route_loader.validate_route(route)
+        if route_error:
+            return None, route_error
+
+        return route, None
+
+    def _set_route_path(self, route_path):
+        """Single path both loading and saving a route go through to persist it as the active route."""
+        self.route_path = route_path
+        config.set_key("route", "path", route_path)
+        config.save_config()
+
     def save(self):
         self.apply_btn.setFocus()
-
-        splits = []
 
         if self.split_table.rowCount() < 1:
             self.display_error_message("No Splits", "Route Error")
             return -1
 
+        splits = []
         for row in range(self.split_table.rowCount()):
-            title = self.split_table.item(row, 1).text()
-            if len(title) <= 0:
-                self.display_error_message("Invalid Title - Row: " + str(row + 1), "Route Error")
-                self.split_table.setCurrentCell(row, 1)
-                return -1
-
-            try:
-                star_count = int(self.split_table.item(row, 2).text())
-            except (ValueError, AttributeError):
-                if not self.split_table.cellWidget(row, 6).currentText() == SPLIT_FADE_ONLY:
-                    self.display_error_message("Invalid Star Count - Row: " + str(row + 1), "Route Error")
-                    self.split_table.setCurrentCell(row, 2)
-                    return -1
-                else:
-                    star_count = -1
-
-            try:
-                fadeouts = int(self.split_table.item(row, 3).text())
-            except (ValueError, AttributeError):
-                if self.split_table.cellWidget(row, 6).currentText == SPLIT_NORMAL:
-                    self.display_error_message("Invalid Fadeout - Row: " + str(row + 1), "Route Error")
-                    self.split_table.setCurrentCell(row, 3)
-                    return -1
-                else:
-                    fadeouts = -1
-
-            try:
-                fadeins = int(self.split_table.item(row, 4).text())
-            except (ValueError, AttributeError):
-                if self.split_table.cellWidget(row, 6).currentText == SPLIT_NORMAL:
-                    self.display_error_message("Invalid Fadein - Row: " + str(row + 1), "Route Error")
-                    self.split_table.setCurrentCell(row, 4)
-                    return -1
-                else:
-                    fadeins = -1
-
-
-            try:
-                xcam = int(self.split_table.item(row, 5).text())
-            except (ValueError, AttributeError):
-                if self.split_table.cellWidget(row, 6).currentText == SPLIT_XCAM:
-                    self.display_error_message("Invalid XCam - Row: " + str(row + 1), "Route Error")
-                    self.split_table.setCurrentCell(row, 5)
-                    return -1
-                else:
-                    xcam = -1
-
             try:
                 icon_path = self.split_table.item(row, 0).toolTip()
             except (ValueError, AttributeError):
                 icon_path = ""
 
-            split_type = self.split_table.cellWidget(row, 6).currentText()
-
-            splits.append(Split(title,
-                                star_count,
-                                fadeouts,
-                                fadeins,
-                                xcam,
-                                split_type,
-                                icon_path))
-
-        title = self.title_le.text()
-        if len(title) <= 0:
-            self.display_error_message("Invalid Route Title", "Route Error")
-            return -1
-
-        try:
-            initial_star = int(self.init_star_le.text())
-        except (ValueError, AttributeError):
-            self.display_error_message("Invalid Initial Star", "Route Error")
-            return -1
-
-        category = self.category_combo.lineEdit().text()
-
-        route = Route(self.route_path,
-                      title,
-                      splits,
-                      initial_star,
-                      self.version_combo.itemText(self.version_combo.currentIndex()),
-                      category,
-                      self.timing_combo.itemText(self.timing_combo.currentIndex()))
-
-        route_error = route_loader.validate_route(route)
-
-        if route_error:
-            self.display_error_message(route_error, "Route Error")
-            return -1
-
-        if not self.route_path:
-            file_name, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save Route", resource_utils.base_path() + "/routes", "AS64 Route Files (*.as64)")
-
-            if file_name != '':
-                self.route_path = file_name
-            else:
+            split, error, error_column = self._row_to_split(
+                row + 1,
+                self.split_table.item(row, 1).text(),
+                self.split_table.item(row, 2).text(),
+                self.split_table.item(row, 3).text(),
+                self.split_table.item(row, 4).text(),
+                self.split_table.item(row, 5).text(),
+                self.split_table.cellWidget(row, 6).currentText(),
+                icon_path,
+            )
+            if error:
+                self.display_error_message(error, "Route Error")
+                self.split_table.setCurrentCell(row, error_column)
                 return -1
 
-        route_loader.save(route, self.route_path)
-        config.set_key("route", "path", self.route_path)
-        config.save_config()
+            splits.append(split)
+
+        route, error = self._build_route(
+            self.route_path,
+            self.title_le.text(),
+            splits,
+            self.init_star_le.text(),
+            self.version_combo.itemText(self.version_combo.currentIndex()),
+            self.category_combo.lineEdit().text(),
+            self.timing_combo.itemText(self.timing_combo.currentIndex()),
+        )
+        if error:
+            self.display_error_message(error, "Route Error")
+            return -1
+
+        file_name = self.route_path
+        if not file_name:
+            file_name, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save Route", resource_utils.base_path() + "/routes", "AS64 Route Files (*.as64)")
+            if file_name == '':
+                return -1
+
+        route_loader.save(route, file_name)
+        self._set_route_path(file_name)
         self.route_updated.emit()
 
     def convert_lss(self):
