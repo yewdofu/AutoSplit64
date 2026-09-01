@@ -9,6 +9,7 @@ import requests
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from as64core import route_loader, config
+from as64core.route import Route
 from as64core.resource_utils import user_data_path, resource_path, rel_to_abs
 from . import constants
 from .widgets import PictureButton, StateButton, StarCountDisplay, SplitListWidget
@@ -73,7 +74,7 @@ class App(QtWidgets.QMainWindow):
         }
 
         self._routes = {}
-        self._load_route_dir()
+        self._load_routes()
 
         self.initialize()
         self.show()
@@ -260,7 +261,7 @@ class App(QtWidgets.QMainWindow):
         if error:
             self.display_error_message(error, "Route Error")
             if route_missing:
-                self._load_route_dir()
+                self._load_routes()
                 self._set_and_save("route", "path", "")
             return False
 
@@ -311,15 +312,6 @@ class App(QtWidgets.QMainWindow):
 
                 for route in self._routes[category]:
                     route_actions[category_menus[category].addAction(route[0])] = partial(self._save_open_route, route[1])
-
-        recent_entries = self._recent_route_entries()
-        if recent_entries:
-            route_menu.addSeparator()
-            recent_menu = QtWidgets.QMenu("Recent")
-            route_menu.addMenu(recent_menu)
-
-            for title, path in recent_entries:
-                route_actions[recent_menu.addAction(title)] = partial(self._save_open_route, path)
 
         route_menu.addSeparator()
         file_action = route_menu.addAction("From File")
@@ -433,30 +425,51 @@ class App(QtWidgets.QMainWindow):
         msg.setText(message)
         msg.show()
 
-    def _load_route_dir(self):
+    def _load_routes(self):
+        """
+        Collect every route to offer in the menu, grouped by category: the
+        .as64 files in the routes directory plus any route opened from
+        elsewhere that is still on disk. Where a route file happens to live
+        is not something the menu should expose.
+        """
         self._routes = {}
 
-        routes_dir = user_data_path("routes")
-        if not os.path.isdir(routes_dir):
+        for route_path in self._route_paths():
+            route = route_loader.load(route_path)
+
+            if isinstance(route, Route):
+                self._routes.setdefault(route.category, []).append([route.title, route_path])
+
+    @staticmethod
+    def _route_paths():
+        """
+        Paths of every route to list: the routes directory first, then
+        remembered routes that live outside it. Files that have since been
+        deleted are dropped rather than listed as dead entries.
+        """
+        routes_dir = user_data_path(constants.ROUTES_DIR)
+
+        if os.path.isdir(routes_dir):
+            paths = [os.path.join(routes_dir, file) for file in os.listdir(routes_dir) if file.endswith(".as64")]
+        else:
             os.makedirs(routes_dir)
-            return
+            paths = []
 
-        for file in os.listdir(routes_dir):
-            if file.endswith(".as64"):
-                route_path = os.path.join(routes_dir, file)
-                route = route_loader.load(route_path)
+        listed = {os.path.normcase(os.path.normpath(path)) for path in paths}
 
-                if route:
-                    category = route.category
+        for path in config.get("route", "recent"):
+            key = os.path.normcase(os.path.normpath(path))
 
-                    try:
-                        self._routes[category].append([route.title, route_path])
-                    except KeyError:
-                        self._routes[category] = []
-                        self._routes[category].append([route.title, route_path])
+            if key in listed or not os.path.isfile(path):
+                continue
+
+            listed.add(key)
+            paths.append(path)
+
+        return paths
 
     def _on_route_update(self):
-        self._load_route_dir()
+        self._load_routes()
         self.open_route()
 
     def _save_open_route(self, file_path):
@@ -495,33 +508,6 @@ class App(QtWidgets.QMainWindow):
                 updated.append(path)
 
         return updated[:limit]
-
-    def _recent_route_entries(self):
-        """
-        [title, path] for every remembered route that still exists and lives
-        outside the routes directory. Routes inside it are already listed by
-        category, so including them here would only duplicate entries.
-        """
-        routes_dir = os.path.normcase(os.path.normpath(user_data_path(constants.ROUTES_DIR)))
-        entries = []
-
-        for path in config.get("route", "recent"):
-            if not os.path.isfile(path):
-                continue
-
-            if os.path.normcase(os.path.normpath(os.path.dirname(path))) == routes_dir:
-                continue
-
-            try:
-                title = route_loader.load(path).title
-            except (AttributeError, ValueError):
-                # Unreadable or malformed route - still offer it by file name
-                # rather than dropping it from the history without a trace.
-                title = os.path.basename(path)
-
-            entries.append([title, path])
-
-        return entries
 
     def _reset(self):
         if self.start_btn.get_state() == "stop":

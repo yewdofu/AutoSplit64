@@ -29,13 +29,19 @@ from .constants import (
 
 
 def load(file_path):
+    """
+    Read a route file, or None if it cannot be read as one - missing,
+    unreadable, not JSON, or missing keys a route needs. Callers list and
+    open files chosen by the user, so a malformed one has to be reported
+    as "no route" rather than raised at them.
+    """
     try:
         with open(file_path) as route_data:
             data = route_data.read()
             new_data = data[:1] + '"file_path": ' + json.dumps(file_path) + ',' + data[1:]
             decoded_route = RouteDecoder().decode(new_data)
             return decoded_route
-    except FileNotFoundError:
+    except (OSError, ValueError, KeyError):
         return None
 
 
