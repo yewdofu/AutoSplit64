@@ -5,11 +5,11 @@ Opening a route from elsewhere via "From File" worked, but switching away
 from it dropped it from every menu - the only way back was to walk the file
 dialog again.
 
-Verifies the recently opened route history: _updated_recent_routes applies
-the history rules (newest first, no duplicates, capped), and _route_paths /
-_load_routes fold remembered routes into the same category-grouped listing
-as the routes directory, so where a route file lives stays invisible to the
-menu.
+The menu now lists the routes that have been opened, wherever they live:
+_updated_recent_routes applies the history rules (newest first, no
+duplicates, capped), _route_paths decides what is still worth listing,
+_load_routes groups it by category, and Reset History trims the list back
+to the route currently open.
 
 Everything here uses fake stand-in objects, tmp_path files, or a
 monkeypatched config.get - none of it touches the real config.json.
@@ -43,13 +43,8 @@ def _write_route(path, title, category=""):
     return str(path)
 
 
-def _routes_dir(tmp_path, recent, monkeypatch):
-    """A routes directory at tmp_path/routes, with config's history stubbed out."""
-    routes_dir = tmp_path / "routes"
-    routes_dir.mkdir()
+def _history(recent, monkeypatch):
     monkeypatch.setattr(config, "get", lambda *a, **kw: recent)
-    monkeypatch.setattr("as64gui.app.user_data_path", lambda *a: str(routes_dir))
-    return routes_dir
 
 
 # --- _updated_recent_routes: pure history rules ---------------------------------
@@ -94,7 +89,7 @@ def test_remember_recent_route_saves_updated_history(monkeypatch):
     fake = type("F", (), {})()
     fake._updated_recent_routes = App._updated_recent_routes
     fake._set_and_save = lambda s, k, v: saved.append((s, k, v))
-    monkeypatch.setattr(config, "get", lambda *a, **kw: ["b.as64"])
+    _history(["b.as64"], monkeypatch)
 
     App._remember_recent_route(fake, "a.as64")
 
@@ -103,103 +98,128 @@ def test_remember_recent_route_saves_updated_history(monkeypatch):
 
 # --- _route_paths: which files get listed ---------------------------------------
 
-def test_routes_directory_is_listed(tmp_path, monkeypatch):
-    routes_dir = _routes_dir(tmp_path, [], monkeypatch)
-    inside = _write_route(routes_dir / "inside.as64", "Inside")
+def test_remembered_routes_are_listed_newest_first(tmp_path, monkeypatch):
+    second = _write_route(tmp_path / "second.as64", "Second")
+    first = _write_route(tmp_path / "first.as64", "First")
+    _history([second, first], monkeypatch)
 
-    assert App._route_paths() == [inside]
-
-
-def test_non_route_files_in_the_directory_are_ignored(tmp_path, monkeypatch):
-    routes_dir = _routes_dir(tmp_path, [], monkeypatch)
-    (routes_dir / "notes.txt").write_text("ignore me", encoding="utf-8")
-
-    assert App._route_paths() == []
-
-
-def test_remembered_route_outside_the_directory_is_listed(tmp_path, monkeypatch):
-    _routes_dir(tmp_path, [str(tmp_path / "elsewhere.as64")], monkeypatch)
-    external = _write_route(tmp_path / "elsewhere.as64", "External")
-
-    assert App._route_paths() == [external]
-
-
-def test_remembered_route_inside_the_directory_is_not_listed_twice(tmp_path, monkeypatch):
-    routes_dir = tmp_path / "routes"
-    routes_dir.mkdir()
-    inside = _write_route(routes_dir / "inside.as64", "Inside")
-    monkeypatch.setattr(config, "get", lambda *a, **kw: [os.path.normpath(inside)])
-    # user_data_path returns forward slashes; the stored path uses os.sep.
-    monkeypatch.setattr("as64gui.app.user_data_path", lambda *a: str(routes_dir).replace("\\", "/"))
-
-    listed = [os.path.normcase(os.path.normpath(path)) for path in App._route_paths()]
-
-    assert listed == [os.path.normcase(os.path.normpath(inside))]
+    assert App._route_paths() == [second, first]
 
 
 def test_deleted_route_is_dropped(tmp_path, monkeypatch):
-    _routes_dir(tmp_path, [str(tmp_path / "deleted.as64")], monkeypatch)
+    _history([str(tmp_path / "deleted.as64")], monkeypatch)
 
     assert App._route_paths() == []
 
 
-def test_directory_routes_come_before_remembered_ones(tmp_path, monkeypatch):
+def test_same_path_spelled_differently_is_listed_once(tmp_path, monkeypatch):
+    route = _write_route(tmp_path / "route.as64", "Route")
+    _history([route, route.replace("\\", "/")], monkeypatch)
+
+    assert App._route_paths() == [route]
+
+
+def test_empty_history_lists_nothing(monkeypatch):
+    _history([], monkeypatch)
+
+    assert App._route_paths() == []
+
+
+def test_routes_directory_is_not_scanned(tmp_path, monkeypatch):
+    """A file sitting in the routes directory is not listed until it is opened."""
     routes_dir = tmp_path / "routes"
     routes_dir.mkdir()
-    external = _write_route(tmp_path / "external.as64", "External")
-    monkeypatch.setattr(config, "get", lambda *a, **kw: [external])
-    monkeypatch.setattr("as64gui.app.user_data_path", lambda *a: str(routes_dir))
-    inside = _write_route(routes_dir / "inside.as64", "Inside")
-
-    assert App._route_paths() == [inside, external]
-
-
-def test_missing_routes_directory_is_created(tmp_path, monkeypatch):
-    routes_dir = tmp_path / "routes"
-    monkeypatch.setattr(config, "get", lambda *a, **kw: [])
+    _write_route(routes_dir / "never_opened.as64", "Never Opened")
+    _history([], monkeypatch)
     monkeypatch.setattr("as64gui.app.user_data_path", lambda *a: str(routes_dir))
 
     assert App._route_paths() == []
-    assert routes_dir.is_dir()
 
 
-# --- _load_routes: remembered routes group by category like any other -----------
+# --- _load_routes: grouping by category -----------------------------------------
 
-def _load(fake=None):
-    fake = fake or type("F", (), {})()
+def _load(monkeypatch, recent):
+    _history(recent, monkeypatch)
+    fake = type("F", (), {})()
     fake._route_paths = App._route_paths
     App._load_routes(fake)
     return fake._routes
 
 
-def test_remembered_route_is_grouped_by_its_own_category(tmp_path, monkeypatch):
+def test_routes_group_by_category_wherever_they_live(tmp_path, monkeypatch):
     routes_dir = tmp_path / "routes"
     routes_dir.mkdir()
-    external = _write_route(tmp_path / "external.as64", "16 Star Custom", category="16 Star")
-    monkeypatch.setattr(config, "get", lambda *a, **kw: [external])
-    monkeypatch.setattr("as64gui.app.user_data_path", lambda *a: str(routes_dir))
     inside = _write_route(routes_dir / "inside.as64", "LBLJ", category="16 Star")
+    external = _write_route(tmp_path / "external.as64", "16 Star Custom", category="16 Star")
 
-    assert _load() == {"16 Star": [["LBLJ", inside], ["16 Star Custom", external]]}
+    assert _load(monkeypatch, [inside, external]) == {
+        "16 Star": [["LBLJ", inside], ["16 Star Custom", external]]
+    }
 
 
 def test_uncategorised_routes_share_the_empty_category(tmp_path, monkeypatch):
-    routes_dir = _routes_dir(tmp_path, [], monkeypatch)
-    inside = _write_route(routes_dir / "inside.as64", "Upstairs")
+    route = _write_route(tmp_path / "route.as64", "Upstairs")
 
-    assert _load() == {"": [["Upstairs", inside]]}
+    assert _load(monkeypatch, [route]) == {"": [["Upstairs", route]]}
 
 
 def test_unreadable_route_is_skipped(tmp_path, monkeypatch):
-    routes_dir = _routes_dir(tmp_path, [], monkeypatch)
-    (routes_dir / "broken.as64").write_text("{ not valid json", encoding="utf-8")
-    good = _write_route(routes_dir / "good.as64", "Good")
+    broken = tmp_path / "broken.as64"
+    broken.write_text("{ not valid json", encoding="utf-8")
+    good = _write_route(tmp_path / "good.as64", "Good")
 
-    assert _load() == {"": [["Good", good]]}
+    assert _load(monkeypatch, [str(broken), good]) == {"": [["Good", good]]}
 
 
 def test_json_without_the_route_flag_is_skipped(tmp_path, monkeypatch):
-    routes_dir = _routes_dir(tmp_path, [], monkeypatch)
-    (routes_dir / "settings.as64").write_text(json.dumps({"something": "else"}), encoding="utf-8")
+    not_a_route = tmp_path / "settings.as64"
+    not_a_route.write_text(json.dumps({"something": "else"}), encoding="utf-8")
 
-    assert _load() == {}
+    assert _load(monkeypatch, [str(not_a_route)]) == {}
+
+
+# --- _history_after_reset: what survives Reset History ---------------------------
+
+def test_reset_keeps_only_the_open_route():
+    assert App._history_after_reset("C:/Routes/open.as64") == ["C:/Routes/open.as64"]
+
+
+def test_reset_with_no_open_route_empties_the_history():
+    assert App._history_after_reset("") == []
+
+
+# --- reset_route_history: confirmation gates the reset ---------------------------
+
+def _reset_fake(monkeypatch, answer):
+    from PyQt5 import QtWidgets
+
+    calls = []
+    fake = type("F", (), {})()
+    fake._history_after_reset = App._history_after_reset
+    fake._set_and_save = lambda s, k, v: calls.append((s, k, v))
+    fake._load_routes = lambda: calls.append("load_routes")
+
+    monkeypatch.setattr(config, "get", lambda *a, **kw: "C:/Routes/open.as64")
+    monkeypatch.setattr(QtWidgets.QMessageBox, "question", staticmethod(lambda *a, **kw: answer))
+
+    return fake, calls
+
+
+def test_declining_the_confirmation_changes_nothing(monkeypatch):
+    from PyQt5 import QtWidgets
+
+    fake, calls = _reset_fake(monkeypatch, QtWidgets.QMessageBox.No)
+
+    App.reset_route_history(fake)
+
+    assert calls == []
+
+
+def test_confirming_saves_the_trimmed_history_and_reloads(monkeypatch):
+    from PyQt5 import QtWidgets
+
+    fake, calls = _reset_fake(monkeypatch, QtWidgets.QMessageBox.Yes)
+
+    App.reset_route_history(fake)
+
+    assert calls == [("route", "recent", ["C:/Routes/open.as64"]), "load_routes"]

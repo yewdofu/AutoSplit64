@@ -73,6 +73,10 @@ class App(QtWidgets.QMainWindow):
             "output_dialog": OutputDialog(self)
         }
 
+        # Nothing is listed from here any more, but it stays the conventional
+        # place to keep routes - it is where the open/save dialogs start.
+        os.makedirs(user_data_path(constants.ROUTES_DIR), exist_ok=True)
+
         self._routes = {}
         self._load_routes()
 
@@ -277,6 +281,28 @@ class App(QtWidgets.QMainWindow):
         if file_path:
             self._save_open_route(file_path)
 
+    def reset_route_history(self):
+        """Ask before forgetting the listed routes, since nothing restores the list afterwards."""
+        confirmation = QtWidgets.QMessageBox.question(
+            self,
+            "Reset History",
+            "Forget every route in the list except the one currently open?\n\nNo route files are deleted.",
+        )
+
+        if confirmation != QtWidgets.QMessageBox.Yes:
+            return
+
+        self._set_and_save("route", "recent", self._history_after_reset(config.get("route", "path")))
+        self._load_routes()
+
+    @staticmethod
+    def _history_after_reset(current_path):
+        """
+        What the history keeps after a reset: the route currently open, so
+        the running route stays reachable from the menu, and nothing else.
+        """
+        return [current_path] if current_path else []
+
     def update_found(self, info):
         # TODO: RENAME FUNCTION
         if info["found"]:
@@ -315,6 +341,7 @@ class App(QtWidgets.QMainWindow):
 
         route_menu.addSeparator()
         file_action = route_menu.addAction("From File")
+        reset_history_action = route_menu.addAction("Reset History")
 
         # Actions
         edit_route = context_menu.addAction("Edit Route")
@@ -347,6 +374,8 @@ class App(QtWidgets.QMainWindow):
             self.dialogs["route_editor"].show()
         elif action == file_action:
             self.open_route_browser()
+        elif action == reset_history_action:
+            self.reset_route_history()
         elif action == cords_action:
             # Capture Setup opens its own capture of the same window/device;
             # doing that while the core holds it crashes inside OpenCV.
@@ -443,19 +472,13 @@ class App(QtWidgets.QMainWindow):
     @staticmethod
     def _route_paths():
         """
-        Paths of every route to list: the routes directory first, then
-        remembered routes that live outside it. Files that have since been
-        deleted are dropped rather than listed as dead entries.
+        Paths of every route to list - the routes opened so far that are
+        still on disk. Deleted files are dropped rather than listed as dead
+        entries, and a route recorded twice under different spellings of the
+        same path is listed once.
         """
-        routes_dir = user_data_path(constants.ROUTES_DIR)
-
-        if os.path.isdir(routes_dir):
-            paths = [os.path.join(routes_dir, file) for file in os.listdir(routes_dir) if file.endswith(".as64")]
-        else:
-            os.makedirs(routes_dir)
-            paths = []
-
-        listed = {os.path.normcase(os.path.normpath(path)) for path in paths}
+        paths = []
+        listed = set()
 
         for path in config.get("route", "recent"):
             key = os.path.normcase(os.path.normpath(path))
