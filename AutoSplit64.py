@@ -181,7 +181,13 @@ class AutoSplit64(QtCore.QObject):
         with self._lifecycle_lock:
             self._start_requested = False
             self._start_generation += 1
-        as64core.stop()
+            base = getattr(as64core, "_base", None)
+
+        # Releasing a capture device or closing a LiveSplit socket can block.
+        # Keep that work off the Qt GUI thread, and bind the exact Base being
+        # stopped so a delayed worker can never stop a newer generation.
+        if base is not None:
+            Thread(target=base.stop, daemon=True).start()
 
     def on_started(self):
         self.app.set_started(True)
