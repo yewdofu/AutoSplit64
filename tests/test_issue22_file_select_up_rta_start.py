@@ -44,10 +44,9 @@ def test_up_rta_xcam_detection_starts_timer(monkeypatch):
         FADEOUT_COMPLETE="fadeout-complete",
         FADEOUT_PARTIAL="fadeout-partial",
         fadeout_count=1,
-        XCAM_REGION="xcam",
+        in_xcam=True,
         fps=10,
         enable_predictions=lambda enabled: calls.append(("predictions", enabled)),
-        get_region=lambda region: np.full((4, 4, 3), [10, 20, 100], dtype=np.uint8),
         split=lambda: calls.append(("split",)),
         set_in_game=lambda in_game: calls.append(("in_game", in_game)),
     )
@@ -60,6 +59,27 @@ def test_up_rta_xcam_detection_starts_timer(monkeypatch):
     assert ("split",) in calls
     assert ("in_game", True) in calls
     assert runtime.fadeout_count == 0
+
+
+def test_up_rta_waits_for_configured_xcam_detection(monkeypatch):
+    import as64processes.xcam as xcam_module
+
+    calls = []
+    runtime = SimpleNamespace(
+        fade_status="none",
+        FADEOUT_COMPLETE="fadeout-complete",
+        FADEOUT_PARTIAL="fadeout-partial",
+        fadeout_count=1,
+        in_xcam=False,
+        fps=10,
+        split=lambda: calls.append(("split",)),
+    )
+    monkeypatch.setattr(xcam_module, "as64core", runtime)
+
+    process = xcam_module.ProcessXCamStartUpSegment()
+
+    assert process.execute() is process.signals["LOOP"]
+    assert calls == []
 
 
 def test_file_select_detection_starts_timer(monkeypatch):
@@ -80,14 +100,14 @@ def test_file_select_detection_starts_timer(monkeypatch):
         FADEOUT_COMPLETE="fadeout-complete",
         FADEOUT_PARTIAL="fadeout-partial",
         FADEOUT_REGION="fadeout",
-        fadein_count=2,
+        fadein_count=1,
         fadeout_count=3,
         star_count=74,
         prediction_info=SimpleNamespace(prediction=-1, probability=0.0),
         route=SimpleNamespace(initial_star=74, splits=[SimpleNamespace(star_count=78)]),
         split_index=lambda: 0,
         current_split=lambda: SimpleNamespace(star_count=78),
-        get_region=lambda region: np.zeros((4, 4, 3), dtype=np.uint8),
+        get_region=lambda region: np.full((4, 4, 3), [0, 0, 100], dtype=np.uint8),
         split=lambda: calls.append(("split",)),
         set_in_game=lambda in_game: calls.append(("in_game", in_game)),
     )
@@ -104,3 +124,40 @@ def test_file_select_detection_starts_timer(monkeypatch):
     assert any(call[0] == "sleep" for call in calls)
     assert runtime.fadein_count == 0
     assert runtime.fadeout_count == 0
+
+
+def test_file_select_waits_for_transition_colour(monkeypatch):
+    import as64processes.standard as standard_module
+
+    calls = []
+
+    def config_get(section, key):
+        values = {
+            ("general", "mid_run_start_enabled"): False,
+            ("advanced", "file_select_frame_offset"): -29,
+            ("thresholds", "probability_threshold"): 0.9,
+        }
+        return values[(section, key)]
+
+    runtime = SimpleNamespace(
+        fade_status="none",
+        FADEOUT_COMPLETE="fadeout-complete",
+        FADEOUT_PARTIAL="fadeout-partial",
+        FADEOUT_REGION="fadeout",
+        fadein_count=1,
+        fadeout_count=0,
+        star_count=74,
+        prediction_info=SimpleNamespace(prediction=-1, probability=0.0),
+        route=SimpleNamespace(initial_star=74, splits=[SimpleNamespace(star_count=78)]),
+        split_index=lambda: 0,
+        current_split=lambda: SimpleNamespace(star_count=78),
+        get_region=lambda region: np.full((4, 4, 3), 100, dtype=np.uint8),
+        split=lambda: calls.append(("split",)),
+    )
+    monkeypatch.setattr(standard_module.config, "get", config_get)
+    monkeypatch.setattr(standard_module, "as64core", runtime)
+
+    process = standard_module.ProcessFileSelectSplit()
+
+    assert process.execute() is process.signals["LOOP"]
+    assert calls == []
