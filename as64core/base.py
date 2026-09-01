@@ -102,6 +102,7 @@ class Base(Thread):
 
         #
         self._in_game = False
+        self._reset_runtime_state()
 
         try:
             self._route_length = len(self._route.splits)
@@ -544,6 +545,17 @@ class Base(Thread):
 
     def set_in_game(self, in_game):
         self._in_game = in_game
+
+    def _reset_runtime_state(self):
+        """Clear frame-detection state left by a previous Base instance."""
+        self._reset_fade_count()
+        as64.current_time = 0.0
+        as64.last_split = 0
+        as64.collection_time = 0
+        as64.xcam_count = 0
+        as64.xcam_percent = 0.0
+        as64.in_xcam = False
+        as64.fade_status = NO_FADE
 
     def set_star_count(self, star_count):
         self._reset_fade_count()
