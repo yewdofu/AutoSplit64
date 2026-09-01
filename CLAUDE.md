@@ -31,7 +31,7 @@ rsrc -manifest app.manifest -o rsrc.syso
 go build -ldflags="-H windowsgui" -o ..\dist\AutoSplit64\Updater.exe .
 
 # モデル変換（HDF5 → ONNX）
-uv run --group dev python tools/convert_to_onnx.py
+uv run --group convert python tools/convert_to_onnx.py
 ```
 
 There are no configured test or lint commands.

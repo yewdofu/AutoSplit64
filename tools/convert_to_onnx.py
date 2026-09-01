@@ -1,12 +1,12 @@
 """
 Convert Keras HDF5 model to ONNX format.
 
-Requirements (Python 3.10 or 3.11 environment):
-    pip install tensorflow tf2onnx
+Requirements:
+    uv sync --group convert
 
 Usage:
-    python tools/convert_to_onnx.py
-    python tools/convert_to_onnx.py resources/model/default_model.hdf5
+    uv run --group convert python tools/convert_to_onnx.py
+    uv run --group convert python tools/convert_to_onnx.py resources/model/default_model.hdf5
 """
 
 import sys
