@@ -73,8 +73,8 @@ class App(QtWidgets.QMainWindow):
             "output_dialog": OutputDialog(self)
         }
 
-        # Nothing is listed from here any more, but it stays the conventional
-        # place to keep routes - it is where the open/save dialogs start.
+        # The conventional place to keep routes: listed in the menu, and where
+        # the open/save dialogs start.
         os.makedirs(user_data_path(constants.ROUTES_DIR), exist_ok=True)
 
         self._routes = {}
@@ -282,11 +282,12 @@ class App(QtWidgets.QMainWindow):
             self._save_open_route(file_path)
 
     def reset_route_history(self):
-        """Ask before forgetting the listed routes, since nothing restores the list afterwards."""
+        """Ask before forgetting the opened routes, since nothing restores the history afterwards."""
         confirmation = QtWidgets.QMessageBox.question(
             self,
             "Reset History",
-            "Forget every route in the list except the one currently open?\n\nNo route files are deleted.",
+            "Forget the routes opened from outside the routes folder?"
+            "\n\nThe route currently open is kept, and no route files are deleted.",
         )
 
         if confirmation != QtWidgets.QMessageBox.Yes:
@@ -472,13 +473,18 @@ class App(QtWidgets.QMainWindow):
     @staticmethod
     def _route_paths():
         """
-        Paths of every route to list - the routes opened so far that are
-        still on disk. Deleted files are dropped rather than listed as dead
-        entries, and a route recorded twice under different spellings of the
-        same path is listed once.
+        Paths of every route to list: the .as64 files kept in the routes
+        directory, then any route opened from elsewhere. Deleted files are
+        dropped rather than listed as dead entries, and a route reachable
+        through two spellings of the same path is listed once.
         """
+        routes_dir = user_data_path(constants.ROUTES_DIR)
         paths = []
-        listed = set()
+
+        if os.path.isdir(routes_dir):
+            paths = [os.path.join(routes_dir, file) for file in os.listdir(routes_dir) if file.endswith(".as64")]
+
+        listed = {os.path.normcase(os.path.normpath(path)) for path in paths}
 
         for path in config.get("route", "recent"):
             key = os.path.normcase(os.path.normpath(path))
