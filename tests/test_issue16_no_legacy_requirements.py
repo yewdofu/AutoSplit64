@@ -16,7 +16,7 @@ def test_requirements_txt_does_not_exist():
 
 def test_no_pip_install_dash_r_requirements_reference():
     result = subprocess.run(
-        ["git", "grep", "-l", "-i", "pip install -r requirements"],
+        ["git", "grep", "-l", "-i", "--", "pip install -r requirements", ":!tests/test_issue16_no_legacy_requirements.py"],
         cwd=ROOT, capture_output=True, text=True,
     )
     # git grep exits 1 when there are no matches - that's the expected state.

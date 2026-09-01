@@ -1,39 +1,51 @@
-import os
 import sys
 from pathlib import Path
 
-
-def base_path(relative_path=None):
-    if not relative_path:
-        return os.path.dirname(sys.argv[0])
-    else:
-        return os.path.join(os.path.dirname(sys.argv[0]), relative_path).replace('\\', '/')
+# Project root when running from source (parent of the as64core package).
+_DEV_ROOT = Path(__file__).resolve().parent.parent
 
 
-def absolute_path(relative_path=None):
-    if not relative_path:
-        return str(Path().absolute()).replace('\\', '/')
-    else:
-        return os.path.join(Path().absolute(), relative_path).replace('\\', '/')
+def _is_frozen():
+    return hasattr(sys, "_MEIPASS")
+
+
+def _resource_root():
+    """Base directory bundled resources are shipped from."""
+    return Path(sys._MEIPASS) if _is_frozen() else _DEV_ROOT
+
+
+def _user_data_root():
+    """Base directory writable user data lives in.
+
+    Frozen: alongside the executable. From source: the project root, so
+    development and a packaged build resolve to the same relative layout.
+    """
+    return Path(sys.executable).resolve().parent if _is_frozen() else _DEV_ROOT
 
 
 def resource_path(relative_path):
     """
-    Get absolute path to resource, works for dev and for PyInstaller
-
-    Credit: https://stackoverflow.com/questions/7674790/bundling-data-files-with-pyinstaller-onefile/13790741#13790741
+    Absolute path to a bundled, read-only resource (assets, templates,
+    .processor files, defaults.json, etc). Resolves against PyInstaller's
+    extraction directory when frozen, the project root otherwise.
     """
-    try:
-        # PyInstaller creates a temp folder and stores path in _MEIPASS
-        path = sys._MEIPASS
-    except Exception:
-        path = os.path.abspath(".")
-    return os.path.join(path, relative_path).replace('\\', '/')
+    return str(_resource_root() / relative_path).replace('\\', '/')
+
+
+def user_data_path(relative_path=None):
+    """
+    Absolute path to writable user data (config.json, routes, generated
+    capture profile templates, etc), stored next to the executable.
+    """
+    base = _user_data_root()
+    if relative_path is None:
+        return str(base).replace('\\', '/')
+    return str(base / relative_path).replace('\\', '/')
 
 
 def abs_to_rel(p):
     # Convert to relative path, if possible
-    rel_path = p.replace(absolute_path(), "")
+    rel_path = p.replace(user_data_path(), "")
 
     # Store Path
     if rel_path != p:
@@ -43,7 +55,7 @@ def abs_to_rel(p):
 
 
 def rel_to_abs(p):
-    if not os.path.isabs(p):
-        return absolute_path(p)
+    if not Path(p).is_absolute():
+        return user_data_path(p)
     else:
         return p

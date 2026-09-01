@@ -31,12 +31,16 @@ class SettingsDialog(QtWidgets.QDialog):
         self.stacked_widget = QtWidgets.QStackedWidget()
         self.profile_label = QtWidgets.QLabel()
 
-        self.general_menu = GeneralMenu()
-        self.connection_menu = ConnectionMenu()
-        self.thresholds_menu = ThresholdsMenu()
-        self.colour_thresholds_menu = ColourThresholdsMenu()
-        self.error_menu = ErrorCorrectionMenu()
-        self.adv_menu = AdvancedMenu()
+        # Pages: adding a settings page means adding one entry here -
+        # registration, load, and save are all driven by this single list.
+        self.pages = [
+            ("General", GeneralMenu()),
+            ("Connection", ConnectionMenu()),
+            ("Thresholds", ThresholdsMenu()),
+            ("Colour Thresholds", ColourThresholdsMenu()),
+            ("Error Correction", ErrorCorrectionMenu()),
+            ("Advanced", AdvancedMenu()),
+        ]
 
         self.initialize()
 
@@ -54,15 +58,11 @@ class SettingsDialog(QtWidgets.QDialog):
         # Configure Widgets
         self.menu_list.setMinimumWidth(80)
         self.menu_list.setSizePolicy(QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Minimum)
-        self.menu_list.addItems(["General", "Connection", "Thresholds", "Colour Thresholds", "Error Correction", "Advanced"])
+        self.menu_list.addItems([name for name, _ in self.pages])
         self.menu_list.setSpacing(8)
 
-        self.stacked_widget.addWidget(self.general_menu)
-        self.stacked_widget.addWidget(self.connection_menu)
-        self.stacked_widget.addWidget(self.thresholds_menu)
-        self.stacked_widget.addWidget(self.colour_thresholds_menu)
-        self.stacked_widget.addWidget(self.error_menu)
-        self.stacked_widget.addWidget(self.adv_menu)
+        for _, menu in self.pages:
+            self.stacked_widget.addWidget(menu)
 
         self.stacked_widget.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
 
@@ -86,23 +86,15 @@ class SettingsDialog(QtWidgets.QDialog):
 
     def show(self):
         self.profile_label.setText("Capture Profile: " + config.get_active_capture_profile_name())
-        self.general_menu.load_preferences()
-        self.connection_menu.load_preferences()
-        self.thresholds_menu.load_preferences()
-        self.colour_thresholds_menu.load_preferences()
-        self.error_menu.load_preferences()
-        self.adv_menu.load_preferences()
+        for _, menu in self.pages:
+            menu.load_preferences()
 
         super().show()
 
     def apply_clicked(self):
         # Update and save preferences
-        self.general_menu.update_preferences()
-        self.connection_menu.update_preferences()
-        self.thresholds_menu.update_preferences()
-        self.colour_thresholds_menu.update_preferences()
-        self.error_menu.update_preferences()
-        self.adv_menu.update_preferences()
+        for _, menu in self.pages:
+            menu.update_preferences()
         config.save_config()
         self.hide()
 
@@ -116,6 +108,31 @@ class SettingsDialog(QtWidgets.QDialog):
 
 
 class BaseMenu(QtWidgets.QWidget):
+    # Subclasses declare simple, 1:1 config<->widget bindings here as
+    # (widget, section, key, kind) tuples. load_preferences/update_preferences
+    # sync every entry automatically, so a new field can't have its load or
+    # save side forgotten. Fields needing extra logic (enabling/disabling
+    # another widget, value translation, etc) can still override either
+    # method - just call super() first to pick up the simple fields.
+    FIELDS = []
+
+    _LOADERS = {
+        "str_text": lambda w, v: w.setText(str(v)),
+        "float_text": lambda w, v: w.setText(str(v)),
+        "int_text": lambda w, v: w.setText(str(v)),
+        "checkbox": lambda w, v: w.setChecked(v),
+        "spin": lambda w, v: w.setValue(v),
+        "combo_index": lambda w, v: w.setCurrentIndex(v),
+    }
+    _SAVERS = {
+        "str_text": lambda w: w.text(),
+        "float_text": lambda w: float(w.text()),
+        "int_text": lambda w: int(w.text()),
+        "checkbox": lambda w: w.isChecked(),
+        "spin": lambda w: w.value(),
+        "combo_index": lambda w: w.currentIndex(),
+    }
+
     def __init__(self, title="", parent=None):
         super().__init__(parent)
 
@@ -134,6 +151,14 @@ class BaseMenu(QtWidgets.QWidget):
         self.title_font.setPointSize(12)
 
         self.initialize()
+
+    def load_preferences(self):
+        for widget, section, key, kind in self.FIELDS:
+            self._LOADERS[kind](widget, config.get(section, key))
+
+    def update_preferences(self):
+        for widget, section, key, kind in self.FIELDS:
+            config.set_key(section, key, self._SAVERS[kind](widget))
 
     def initialize(self):
         # Set Layout
@@ -177,6 +202,12 @@ class GeneralMenu(BaseMenu):
 
         self.on_top_lb = QtWidgets.QLabel("Always On Top:")
         self.on_top_cb = QtWidgets.QCheckBox()
+
+        self.FIELDS = [
+            (self.on_top_cb, "general", "on_top", "checkbox"),
+            (self.mid_run_cb, "general", "mid_run_start_enabled", "checkbox"),
+            (self.mode_combo, "general", "operation_mode", "combo_index"),
+        ]
 
         self.init()
 
@@ -255,24 +286,17 @@ class GeneralMenu(BaseMenu):
         self.override_ver_combo.setDisabled(not checked)
 
     def load_preferences(self):
-        self.mode_combo.setCurrentIndex(config.get("general", "operation_mode"))
+        super().load_preferences()
+
         self.override_ver_cb.setChecked(config.get("game", "override_version"))
-        self.mid_run_cb.setChecked(config.get("general", "mid_run_start_enabled"))
-        self.on_top_cb.setChecked(config.get("general", "on_top"))
-
-        if config.get("game", "version") == "US":
-            self.override_ver_combo.setCurrentIndex(1)
-        else:
-            self.override_ver_combo.setCurrentIndex(0)
-
+        self.override_ver_combo.setCurrentIndex(1 if config.get("game", "version") == "US" else 0)
         self.override_ver_combo.setDisabled(not self.override_ver_cb.isChecked())
 
     def update_preferences(self):
+        super().update_preferences()
+
         config.set_key("game", "override_version", self.override_ver_cb.isChecked())
-        config.set_key("general", "mid_run_start_enabled", self.mid_run_cb.isChecked())
         config.set_key("game", "version", self.override_ver_combo.itemText(self.override_ver_combo.currentIndex()))
-        config.set_key("general", "operation_mode", self.mode_combo.currentIndex())
-        config.set_key("general", "on_top", self.on_top_cb.isChecked())
 
 
 class ThresholdsMenu(BaseMenu):
@@ -312,6 +336,20 @@ class ThresholdsMenu(BaseMenu):
         self.double_validator = QtGui.QDoubleValidator(0, 1, 3)
         self.double_validator.setRange(0, 1, 3)
         self.int_validator = QtGui.QIntValidator()
+
+        self.FIELDS = [
+            (self.prob_le, "thresholds", "probability_threshold", "float_text"),
+            (self.reset_le, "thresholds", "reset_threshold", "float_text"),
+            (self.confirmation_le, "thresholds", "confirmation_threshold", "float_text"),
+            (self.black_le, "thresholds", "black_threshold", "float_text"),
+            (self.white_le, "thresholds", "white_threshold", "float_text"),
+            (self.xcam_bg_le, "thresholds", "xcam_bg_threshold", "int_text"),
+            (self.xcam_rg_le, "thresholds", "xcam_rg_threshold", "int_text"),
+            (self.xcam_bg_activation_le, "thresholds", "xcam_bg_activation", "int_text"),
+            (self.xcam_rg_activation_le, "thresholds", "xcam_rg_activation", "int_text"),
+            (self.xcam_pixel_le, "thresholds", "xcam_pixel_threshold", "float_text"),
+            (self.undo_le, "thresholds", "undo_threshold", "float_text"),
+        ]
 
         self.init()
 
@@ -414,38 +452,6 @@ class ThresholdsMenu(BaseMenu):
 
         self.load_preferences()
 
-    def load_preferences(self):
-        self.prob_le.setText(str(config.get('thresholds', 'probability_threshold')))
-        self.reset_le.setText(str(config.get('thresholds', 'reset_threshold')))
-        self.confirmation_le.setText(str(config.get('thresholds', 'confirmation_threshold')))
-
-        self.black_le.setText(str(config.get('thresholds', 'black_threshold')))
-        self.white_le.setText(str(config.get('thresholds', 'white_threshold')))
-
-        self.xcam_bg_le.setText(str(config.get('thresholds', 'xcam_bg_threshold')))
-        self.xcam_rg_le.setText(str(config.get('thresholds', 'xcam_rg_threshold')))
-        self.xcam_bg_activation_le.setText(str(config.get('thresholds', 'xcam_bg_activation')))
-        self.xcam_rg_activation_le.setText(str(config.get('thresholds', 'xcam_rg_activation')))
-        self.xcam_pixel_le.setText(str(config.get('thresholds', 'xcam_pixel_threshold')))
-
-        self.undo_le.setText(str(config.get('thresholds', 'undo_threshold')))
-
-    def update_preferences(self):
-        config.set_key('thresholds', 'probability_threshold', float(self.prob_le.text()))
-        config.set_key('thresholds', 'reset_threshold', float(self.reset_le.text()))
-        config.set_key('thresholds', 'confirmation_threshold', float(self.confirmation_le.text()))
-
-        config.set_key('thresholds', 'black_threshold', float(self.black_le.text()))
-        config.set_key('thresholds', 'white_threshold', float(self.white_le.text()))
-
-        config.set_key('thresholds', 'xcam_bg_threshold', int(self.xcam_bg_le.text()))
-        config.set_key('thresholds', 'xcam_rg_threshold', int(self.xcam_rg_le.text()))
-        config.set_key('thresholds', 'xcam_bg_activation', int(self.xcam_bg_activation_le.text()))
-        config.set_key('thresholds', 'xcam_rg_activation', int(self.xcam_rg_activation_le.text()))
-        config.set_key('thresholds', 'xcam_pixel_threshold', float(self.xcam_pixel_le.text()))
-
-        config.set_key('thresholds', 'undo_threshold', float(self.undo_le.text()))
-
 
 class ColourThresholdsMenu(BaseMenu):
     def __init__(self, parent=None):
@@ -482,6 +488,16 @@ class ColourThresholdsMenu(BaseMenu):
         self.xcam_widget.setLayout(QtWidgets.QGridLayout())
         self.xcam_lower_bound = SettingsColourWidget("Lower Bound:", "split_xcam", "lower_bound", self.xcam_widget)
         self.xcam_upper_bound = SettingsColourWidget("Upper Bound:", "split_xcam", "upper_bound", self.xcam_widget)
+
+        # Adding a new colour threshold means adding one SettingsColourWidget
+        # above and listing it here - load/save is driven by this list.
+        self.COLOUR_WIDGETS = [
+            self.portal_lower_bound, self.portal_upper_bound,
+            self.hat_lower_bound, self.hat_upper_bound,
+            self.stage_lower_bound, self.stage_upper_bound,
+            self.star_lower_bound, self.star_upper_bound,
+            self.xcam_lower_bound, self.xcam_upper_bound,
+        ]
 
         self.init()
 
@@ -553,28 +569,12 @@ class ColourThresholdsMenu(BaseMenu):
         self.stacked_widget.setCurrentIndex(index)
 
     def load_preferences(self):
-        self.portal_lower_bound.load_config()
-        self.portal_upper_bound.load_config()
-        self.hat_lower_bound.load_config()
-        self.hat_upper_bound.load_config()
-        self.stage_lower_bound.load_config()
-        self.stage_upper_bound.load_config()
-        self.star_lower_bound.load_config()
-        self.star_upper_bound.load_config()
-        self.xcam_lower_bound.load_config()
-        self.xcam_upper_bound.load_config()
+        for widget in self.COLOUR_WIDGETS:
+            widget.load_config()
 
     def update_preferences(self):
-        self.portal_lower_bound.save_config()
-        self.portal_upper_bound.save_config()
-        self.hat_lower_bound.save_config()
-        self.hat_upper_bound.save_config()
-        self.stage_lower_bound.save_config()
-        self.stage_upper_bound.save_config()
-        self.star_lower_bound.save_config()
-        self.star_upper_bound.save_config()
-        self.xcam_lower_bound.save_config()
-        self.xcam_upper_bound.save_config()
+        for widget in self.COLOUR_WIDGETS:
+            widget.save_config()
 
 
 class SettingsColourWidget(QtWidgets.QWidget):
@@ -644,6 +644,11 @@ class ConnectionMenu(BaseMenu):
 
         self.int_validator = QtGui.QIntValidator()
 
+        self.FIELDS = [
+            (self.host_le, "connection", "ls_host", "str_text"),
+            (self.port_le, "connection", "ls_port", "int_text"),
+        ]
+
         self.init()
 
     def init(self):
@@ -677,14 +682,6 @@ class ConnectionMenu(BaseMenu):
 
         self.load_preferences()
 
-    def load_preferences(self):
-        self.host_le.setText(str(config.get('connection', 'ls_host')))
-        self.port_le.setText(str(config.get('connection', 'ls_port')))
-
-    def update_preferences(self):
-        config.set_key('connection', 'ls_host', self.host_le.text())
-        config.set_key('connection', 'ls_port', int(self.port_le.text()))
-
 
 class ErrorCorrectionMenu(BaseMenu):
     def __init__(self, parent=None):
@@ -712,6 +709,15 @@ class ErrorCorrectionMenu(BaseMenu):
         self.double_validator = QtGui.QDoubleValidator(0, 1, 3)
         self.double_validator.setRange(0, 1, 3)
         self.int_validator = QtGui.QIntValidator()
+
+        self.FIELDS = [
+            (self.processing_le, "error", "processing_length", "int_text"),
+            (self.undo_count_le, "error", "minimum_undo_count", "int_text"),
+            (self.undo_threshold_le, "error", "undo_threshold", "float_text"),
+            (self.skip_count_le, "error", "minimum_consecutive_prediction", "int_text"),
+            (self.max_skip_le, "error", "max_star_skip", "int_text"),
+            (self.star_skip_cb, "error", "star_skip", "checkbox"),
+        ]
 
         self.init()
 
@@ -777,22 +783,6 @@ class ErrorCorrectionMenu(BaseMenu):
 
         self.load_preferences()
 
-    def load_preferences(self):
-        self.processing_le.setText(str(config.get('error', 'processing_length')))
-        self.undo_count_le.setText(str(config.get('error', 'minimum_undo_count')))
-        self.undo_threshold_le.setText(str(config.get('error', 'undo_threshold')))
-        self.skip_count_le.setText(str(config.get('error', 'minimum_consecutive_prediction')))
-        self.max_skip_le.setText(str(config.get('error', 'max_star_skip')))
-        self.star_skip_cb.setChecked(config.get('error', 'star_skip'))
-
-    def update_preferences(self):
-        config.set_key('error', 'processing_length', int(self.processing_le.text()))
-        config.set_key('error', 'minimum_undo_count', int(self.undo_count_le.text()))
-        config.set_key('error', 'undo_threshold', float(self.undo_threshold_le.text()))
-        config.set_key('error', 'minimum_consecutive_prediction', int(self.skip_count_le.text()))
-        config.set_key('error', 'max_star_skip', int(self.max_skip_le.text()))
-        config.set_key('error', 'star_skip', self.star_skip_cb.isChecked())
-
 
 class AdvancedMenu(BaseMenu):
     def __init__(self, parent=None):
@@ -835,6 +825,18 @@ class AdvancedMenu(BaseMenu):
 
         self.int_validator = QtGui.QIntValidator()
         self.double_validator = QtGui.QDoubleValidator()
+
+        self.FIELDS = [
+            (self.restart_delay_sb, "advanced", "restart_frame_offset", "spin"),
+            (self.file_select_offset_sb, "advanced", "file_select_frame_offset", "spin"),
+            (self.reset_one_le, "advanced", "reset_frame_one", "str_text"),
+            (self.reset_two_le, "advanced", "reset_frame_two", "str_text"),
+            (self.star_delay_le, "advanced", "star_process_frame_rate", "float_text"),
+            (self.fadeout_delay_le, "advanced", "fadeout_process_frame_rate", "float_text"),
+            (self.model_le, "model", "path", "str_text"),
+            (self.model_width_le, "model", "width", "int_text"),
+            (self.model_height_le, "model", "height", "int_text"),
+        ]
 
         self.init()
 
@@ -931,28 +933,6 @@ class AdvancedMenu(BaseMenu):
         self.model_btn.clicked.connect(self.open_model_dialog)
 
         self.load_preferences()
-
-    def load_preferences(self):
-        self.restart_delay_sb.setValue(config.get('advanced', 'restart_frame_offset'))
-        self.file_select_offset_sb.setValue(config.get('advanced', 'file_select_frame_offset'))
-        self.reset_one_le.setText(str(config.get('advanced', 'reset_frame_one')))
-        self.reset_two_le.setText(str(config.get('advanced', 'reset_frame_two')))
-        self.star_delay_le.setText(str(config.get('advanced', 'star_process_frame_rate')))
-        self.fadeout_delay_le.setText(str(config.get('advanced', 'fadeout_process_frame_rate')))
-        self.model_le.setText(config.get('model', 'path'))
-        self.model_width_le.setText(str(config.get('model', 'width')))
-        self.model_height_le.setText(str(config.get('model', 'height')))
-
-    def update_preferences(self):
-        config.set_key('advanced', 'restart_frame_offset', self.restart_delay_sb.value())
-        config.set_key('advanced', 'file_select_frame_offset', self.file_select_offset_sb.value())
-        config.set_key('advanced', 'reset_frame_one', self.reset_one_le.text())
-        config.set_key('advanced', 'reset_frame_two', self.reset_two_le.text())
-        config.set_key('advanced', 'star_process_frame_rate', float(self.star_delay_le.text()))
-        config.set_key('advanced', 'fadeout_process_frame_rate', float(self.fadeout_delay_le.text()))
-        config.set_key('model', 'path', self.model_le.text())
-        config.set_key('model', 'width', int(self.model_width_le.text()))
-        config.set_key('model', 'height', int(self.model_height_le.text()))
 
     def open_reset_one(self):
         file_name, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Select Reset Frame One", "")

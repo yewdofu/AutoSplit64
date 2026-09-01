@@ -86,6 +86,17 @@ prediction_info = None
 execution_time: float = 0.0
 start_on_reset: bool = True
 
+# Set by Base.__init__ once init() has run; None means "not initialized yet".
+_base = None
+
+
+class NotInitializedError(RuntimeError):
+    """Raised when as64core functionality is used before init() has run."""
+
+
+def _require_init():
+    raise NotInitializedError("as64core.init() must be called before using this function")
+
 
 def init() -> None:
     import sys
@@ -97,42 +108,44 @@ def init() -> None:
 
 
 def start() -> None:
-    pass
+    _require_init()
 
 
 def stop() -> None:
+    # Safe no-op before init: the GUI calls this unconditionally on shutdown,
+    # including when the app is closed without ever pressing Start.
     pass
 
 
 def set_star_count(p_int: int) -> None:
-    pass
+    _require_init()
 
 
 def enable_predictions(enable: bool) -> None:
-    pass
+    _require_init()
 
 
 def enable_fade_count(enable: bool) -> None:
-    pass
+    _require_init()
 
 
 def enable_xcam_count(enable: bool) -> None:
-    pass
+    _require_init()
 
 
 def set_in_game(ended: bool) -> None:
-    pass
+    _require_init()
 
 def get_region(region):
-    pass
+    _require_init()
 
 
 def get_region_rect(region) -> list:
-    pass
+    _require_init()
 
 
 def register_split_processor(split_type, processor) -> None:
-    pass
+    _require_init()
 
 
 #
@@ -140,24 +153,27 @@ def register_split_processor(split_type, processor) -> None:
 #
 
 def split() -> None:
-    pass
+    _require_init()
 
 
 def reset() -> None:
-    pass
+    _require_init()
 
 
 def skip() -> None:
-    pass
+    _require_init()
 
 
 def undo() -> None:
-    pass
+    _require_init()
 
 
 #
 # Tracking Functions
 #
+# fadeout()/fadein()/increment_star() are never wired up by Base - they are
+# unreachable regardless of init state, so they're left as no-ops here
+# rather than turned into a fail-fast trap (see issue #12).
 
 def fadeout() -> None:
     pass
@@ -172,20 +188,22 @@ def increment_star() -> None:
 
 
 def incoming_split(star_count: bool = True, fadeout: bool = True, fadein: bool = True) -> bool:
-    pass
+    _require_init()
 
 
 def current_split():
-    pass
+    _require_init()
 
 
 def split_index() -> int:
-    pass
+    _require_init()
 
 
 #
 # Route
 #
+# load()/save() are likewise never wired up by Base - left as no-ops for the
+# same reason as the tracking functions above.
 
 def load() -> Route:
     pass
@@ -200,16 +218,16 @@ def save() -> None:
 #
 
 def set_update_listener(listener) -> None:
-    pass
+    _require_init()
 
 
 def set_error_listener(listener) -> None:
-    pass
+    _require_init()
 
 
 def set_started_listener(listener) -> None:
-    pass
+    _require_init()
 
 
 def force_update() -> None:
-    pass
+    _require_init()

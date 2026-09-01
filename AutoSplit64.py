@@ -10,14 +10,30 @@ from as64gui.app import App
 import as64core
 from as64core import config
 from as64core.game_capture import open_video_device
-from as64core.processing import register_process, insert_global_hook, insert_global_processor_hook, ProcessorGenerator
+from as64core.processing import register_process, insert_global_hook, ProcessorGenerator
+from as64core.resource_utils import resource_path
 from as64core.route_loader import load
 from as64core.updater import Updater
 
-from as64processes.standard import *
-from as64processes.xcam import *
-from as64processes.ddd import *
-from as64processes.final import *
+from as64processes.standard import (
+    ProcessWait,
+    ProcessRunStart,
+    ProcessRunStartUpSegment,
+    ProcessStarCount,
+    ProcessFadein,
+    ProcessFadeout,
+    ProcessFadeoutNoStar,
+    ProcessFadeoutResetOnly,
+    ProcessPostFadeout,
+    ProcessFlashCheck,
+    ProcessReset,
+    ProcessResetNoStart,
+    ProcessDummy,
+    ProcessFileSelectSplit,
+)
+from as64processes.xcam import ProcessXCam, ProcessXCamStartUpSegment
+from as64processes.ddd import ProcessFindDDDPortal, ProcessDDDEntry, ProcessDDDEntryX
+from as64processes.final import ProcessFinalStageEntry, ProcessFinalStarSpawn, ProcessFinalStarGrab
 
 
 class AutoSplit64(QtCore.QObject):

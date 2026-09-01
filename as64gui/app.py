@@ -9,7 +9,7 @@ import requests
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from as64core import route_loader, config
-from as64core.resource_utils import base_path, resource_path, absolute_path, rel_to_abs
+from as64core.resource_utils import user_data_path, resource_path, rel_to_abs
 from . import constants
 from .widgets import PictureButton, StateButton, StarCountDisplay, SplitListWidget
 from .dialogs import AboutDialog, CaptureEditor, SettingsDialog, RouteEditor, ResetGeneratorDialog, UpdateDialog, OutputDialog
@@ -77,6 +77,11 @@ class App(QtWidgets.QMainWindow):
 
         self.initialize()
         self.show()
+
+    def _set_and_save(self, section, key, value):
+        """Single path every config change in this class goes through to persist immediately."""
+        config.set_key(section, key, value)
+        config.save_config()
 
     def set_always_on_top(self, on_top):
         if on_top:
@@ -188,31 +193,33 @@ class App(QtWidgets.QMainWindow):
             self.start_btn.setEnabled(True)
         self.start_btn.repaint()
 
-    def open_route(self):
-        self._reset()
-
-        if config.get("route", "path") == "":
-            return
-
+    @staticmethod
+    def _load_and_validate_route(route_path):
+        """
+        Load and validate a route file with no side effects - no config
+        writes, no display changes, no core restart. Testable directly with
+        just a file path.
+        Returns (route, error_message, route_missing). route_missing is True
+        only when the file itself couldn't be loaded (as opposed to loading
+        but failing validation) - callers only re-scan the routes directory
+        and clear the configured path in that case, not on a validation error.
+        """
         #try:
-        route = route_loader.load(config.get("route", "path"))
+        route = route_loader.load(route_path)
         # except KeyError:
-        #     self.display_error_message("Key Error", "Route Error")
-        #     return False
+        #     return None, "Key Error", True
 
         if not route:
-            self.display_error_message("Could not load route", "Route Error")
-            self._load_route_dir()
-            config.set_key("route", "path", "")
-            config.save_config()
-            return False
+            return None, "Could not load route", True
 
         error = route_loader.validate_route(route)
-
         if error:
-            self.display_error_message(error, "Route Error")
-            return False
+            return None, error, False
 
+        return route, None, False
+
+    def _display_route(self, route):
+        """Apply an already-validated route to the display widgets."""
         self.route = route
 
         self.split_list.clear()
@@ -232,11 +239,30 @@ class App(QtWidgets.QMainWindow):
 
         self.split_list.repaint()
 
+    def open_route(self):
+        """Load and display whichever route is currently configured (startup, or after RouteEditor saves)."""
+        self._reset()
+
+        route_path = config.get("route", "path")
+        if route_path == "":
+            return None
+
+        route, error, route_missing = self._load_and_validate_route(route_path)
+
+        if error:
+            self.display_error_message(error, "Route Error")
+            if route_missing:
+                self._load_route_dir()
+                self._set_and_save("route", "path", "")
+            return False
+
+        self._display_route(route)
+
         return True
 
     def open_route_browser(self):
         """ Show native file dialog to select a .route file for use. """
-        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Open Route", base_path("routes"),
+        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Open Route", user_data_path("routes"),
                                                              "AS64 Route Files (*.as64)")
 
         if file_path:
@@ -309,8 +335,7 @@ class App(QtWidgets.QMainWindow):
         # Connections
         if action == srl_action:
             checked = srl_action.isChecked()
-            config.set_key("general", "srl_mode", checked)
-            config.save_config()
+            self._set_and_save("general", "srl_mode", checked)
         elif action == edit_route:
             self.dialogs["route_editor"].show()
         elif action == file_action:
@@ -335,8 +360,7 @@ class App(QtWidgets.QMainWindow):
             self.dialogs["output_dialog"].show()
         elif action == on_top_action:
             checked = on_top_action.isChecked()
-            config.set_key("general", "on_top", checked)
-            config.save_config()
+            self._set_and_save("general", "on_top", checked)
             self.set_always_on_top(config.get("general", "on_top"))
         elif action == about_action:
             self.dialogs["about_dialog"].show()
@@ -389,7 +413,7 @@ class App(QtWidgets.QMainWindow):
     def _load_route_dir(self):
         self._routes = {}
 
-        routes_dir = base_path("routes")
+        routes_dir = user_data_path("routes")
         if not os.path.isdir(routes_dir):
             os.makedirs(routes_dir)
             return
@@ -413,17 +437,20 @@ class App(QtWidgets.QMainWindow):
         self.open_route()
 
     def _save_open_route(self, file_path):
-        prev_route = config.get("route", "path")
-        config.set_key("route", "path", file_path)
-        config.save_config()
-        success = self.open_route()
+        """
+        Switch the active route to file_path. Validates first - config, the
+        displayed route, and the core restart are only touched once, and
+        only on success, so an invalid pick leaves everything as it was.
+        """
+        route, error, _ = self._load_and_validate_route(file_path)
 
-        if success:
+        if error:
+            self.display_error_message(error, "Route Error")
             return
-        else:
-            config.set_key("route", "path", prev_route)
-            config.save_config()
-            self.open_route()
+
+        self._set_and_save("route", "path", file_path)
+        self._display_route(route)
+        self._reset()
 
     def _reset(self):
         if self.start_btn.get_state() == "stop":

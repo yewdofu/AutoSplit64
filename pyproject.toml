@@ -17,10 +17,12 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pyinstaller>=6.0",
+    "pytest>=9.1.1",
+]
+convert = [
     "tf2onnx>=1.16",
     "tensorflow>=2.16",
     "tf-keras>=2.21.0",
-    "pytest>=9.1.1",
 ]
 
 [tool.uv]
