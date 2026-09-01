@@ -1,5 +1,5 @@
 import time
-from threading import Event, Thread
+from threading import Event, Lock, Thread
 import logging
 
 import cv2
@@ -70,6 +70,8 @@ class Base(Thread):
         # Main Loop Toggle
         self._running = False
         self._stop_event = Event()
+        self._stop_lock = Lock()
+        self._resources_released = False
 
         # Operation Mode
         self._operation_mode = as64.CONFIRMATION_MODE
@@ -235,10 +237,19 @@ class Base(Thread):
         self._stop_event.set()
         self._running = False
 
-        if isinstance(self._game_capture, DeviceCapture):
-            self._game_capture.release()
+        self._release_resources()
 
-        livesplit.disconnect(self._ls_socket)
+    def _release_resources(self):
+        """Release capture and LiveSplit resources exactly once."""
+        with self._stop_lock:
+            if self._resources_released:
+                return
+            self._resources_released = True
+
+            if isinstance(self._game_capture, DeviceCapture):
+                self._game_capture.release()
+
+            livesplit.disconnect(self._ls_socket)
 
     def run(self):
         try:
@@ -301,8 +312,7 @@ class Base(Thread):
         except Exception:
             self.logger.error("Fatal Error", exc_info=True)
         finally:
-            if isinstance(self._game_capture, DeviceCapture):
-                self._game_capture.release()
+            self._release_resources()
 
     def analyze_xcam_status(self):
         xcam = self._game_capture.get_region(XCAM_REGION)
