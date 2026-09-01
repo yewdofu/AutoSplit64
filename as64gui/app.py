@@ -78,6 +78,14 @@ class App(QtWidgets.QMainWindow):
         self.initialize()
         self.show()
 
+    def _capture_in_use(self):
+        """
+        True while the core is running and holding the capture source.
+        Dialogs that open their own capture of the same window/device
+        (Capture Setup, Reset Template Generator) must not be opened then.
+        """
+        return self.start_btn.get_state() != "start"
+
     def _set_and_save(self, section, key, value):
         """Single path every config change in this class goes through to persist immediately."""
         config.set_key(section, key, value)
@@ -341,21 +349,29 @@ class App(QtWidgets.QMainWindow):
         elif action == file_action:
             self.open_route_browser()
         elif action == cords_action:
-            self.dialogs["capture_editor"].show()
-            try:
-                self.dialogs["output_dialog"].close()
-            except AttributeError:
-                pass
+            # Capture Setup opens its own capture of the same window/device;
+            # doing that while the core holds it crashes inside OpenCV.
+            if self._capture_in_use():
+                self.display_error_message(
+                    "Stop autosplit before opening Capture Setup.",
+                    "Capture In Use"
+                )
+            else:
+                self.dialogs["capture_editor"].show()
+                try:
+                    self.dialogs["output_dialog"].close()
+                except AttributeError:
+                    pass
         elif action == advanced_action:
             self.dialogs["settings_dialog"].show()
         elif action == reset_gen_action:
-            if self.start_btn.get_state() == "start":
-                self.dialogs["reset_dialog"].show()
-            else:
+            if self._capture_in_use():
                 self.display_error_message(
                     "Stop autosplit before generating reset templates.",
                     "Capture In Use"
                 )
+            else:
+                self.dialogs["reset_dialog"].show()
         elif action == output_action:
             self.dialogs["output_dialog"].show()
         elif action == on_top_action:
