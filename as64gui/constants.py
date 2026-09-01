@@ -16,5 +16,6 @@ STAR_HOVER_PATH = "resources/gui/buttons/star_hover.png"
 MINIMIZE_PATH = "resources/gui/buttons/minimize_default.png"
 BACKGROUND_PATH = "resources/gui/gui_bg.png"
 ROUTES_DIR = "routes"
+MAX_RECENT_ROUTES = 10
 
 

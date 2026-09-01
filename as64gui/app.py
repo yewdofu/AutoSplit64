@@ -304,15 +304,22 @@ class App(QtWidgets.QMainWindow):
         for category in sorted(self._routes, key=lambda text:[int(c) if c.isdigit() else c for c in re.split(r'(\d+)', text)]):
             if len(self._routes[category]) == 1 or category == "":
                 for route in self._routes[category]:
-                    route_menu.addAction(route[0])
-                    route_actions[route[0]] = partial(self._save_open_route, route[1])
+                    route_actions[route_menu.addAction(route[0])] = partial(self._save_open_route, route[1])
             else:
                 category_menus[category] = QtWidgets.QMenu(str(category))
                 route_menu.addMenu(category_menus[category])
 
                 for route in self._routes[category]:
-                    category_menus[category].addAction(route[0])
-                    route_actions[route[0]] = partial(self._save_open_route, route[1])
+                    route_actions[category_menus[category].addAction(route[0])] = partial(self._save_open_route, route[1])
+
+        recent_entries = self._recent_route_entries()
+        if recent_entries:
+            route_menu.addSeparator()
+            recent_menu = QtWidgets.QMenu("Recent")
+            route_menu.addMenu(recent_menu)
+
+            for title, path in recent_entries:
+                route_actions[recent_menu.addAction(title)] = partial(self._save_open_route, path)
 
         route_menu.addSeparator()
         file_action = route_menu.addAction("From File")
@@ -386,8 +393,8 @@ class App(QtWidgets.QMainWindow):
             self.close()
         else:
             try:
-                route_actions[action.text()]()
-            except (KeyError, AttributeError):
+                route_actions[action]()
+            except KeyError:
                 pass
 
     def mousePressEvent(self, event):
@@ -465,8 +472,56 @@ class App(QtWidgets.QMainWindow):
             return
 
         self._set_and_save("route", "path", file_path)
+        self._remember_recent_route(file_path)
         self._display_route(route)
         self._reset()
+
+    def _remember_recent_route(self, file_path):
+        """Persist file_path at the front of the recently opened route history."""
+        self._set_and_save("route", "recent", self._updated_recent_routes(config.get("route", "recent"), file_path))
+
+    @staticmethod
+    def _updated_recent_routes(recent, file_path, limit=constants.MAX_RECENT_ROUTES):
+        """
+        Recently opened route paths with file_path moved to the front. Pure
+        function so the history rules (newest first, no duplicates, capped)
+        can be tested without touching config or the GUI.
+        """
+        opened = os.path.normcase(os.path.normpath(file_path))
+        updated = [file_path]
+
+        for path in recent:
+            if os.path.normcase(os.path.normpath(path)) != opened:
+                updated.append(path)
+
+        return updated[:limit]
+
+    def _recent_route_entries(self):
+        """
+        [title, path] for every remembered route that still exists and lives
+        outside the routes directory. Routes inside it are already listed by
+        category, so including them here would only duplicate entries.
+        """
+        routes_dir = os.path.normcase(os.path.normpath(user_data_path(constants.ROUTES_DIR)))
+        entries = []
+
+        for path in config.get("route", "recent"):
+            if not os.path.isfile(path):
+                continue
+
+            if os.path.normcase(os.path.normpath(os.path.dirname(path))) == routes_dir:
+                continue
+
+            try:
+                title = route_loader.load(path).title
+            except (AttributeError, ValueError):
+                # Unreadable or malformed route - still offer it by file name
+                # rather than dropping it from the history without a trace.
+                title = os.path.basename(path)
+
+            entries.append([title, path])
+
+        return entries
 
     def _reset(self):
         if self.start_btn.get_state() == "stop":
