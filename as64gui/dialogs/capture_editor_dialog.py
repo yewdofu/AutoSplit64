@@ -346,6 +346,25 @@ class CaptureEditor(QtWidgets.QDialog):
         for key, value in self._widget_state().items():
             config.set_key("game", key, value, self._draft)
 
+    def _find_resolution_index(self, resolution):
+        """
+        Index of the resolution_combo entry matching (width, height), or -1.
+
+        QComboBox.findData() can't be used here: for Python-object userData
+        (these entries hold tuples) PyQt5 compares by identity, not value, so
+        an equal-but-distinct tuple - which is what config always gives us,
+        since it's rebuilt from JSON - never matches.
+        """
+        if not resolution:
+            return -1
+
+        target = tuple(resolution)
+        for index in range(self.resolution_combo.count()):
+            data = self.resolution_combo.itemData(index)
+            if data is not None and tuple(data) == target:
+                return index
+        return -1
+
     def _load_active_profile(self):
         self._loading = True
         game_region = config.get("game", "game_region", self._draft)
@@ -353,7 +372,7 @@ class CaptureEditor(QtWidgets.QDialog):
         self._preview_size = tuple(config.get("game", "capture_size", self._draft))
 
         resolution = tuple(config.get("game", "device_resolution", self._draft))
-        resolution_index = self.resolution_combo.findData(resolution)
+        resolution_index = self._find_resolution_index(resolution)
         if resolution_index >= 0:
             self.resolution_combo.setCurrentIndex(resolution_index)
 
