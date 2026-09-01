@@ -14,6 +14,14 @@ def insert_global_hook(name, process):
     processes[name] = process
 
 
+class ProcessorDefinitionError(Exception):
+    """
+    Raised when a .processor file references a process, signal, or
+    transition target that doesn't exist, or is otherwise malformed.
+    Always includes the offending file path and the specific item at fault.
+    """
+
+
 class ProcessorGenerator(object):
     INITIAL_PROCESS = "initial_process"
     INHERIT = "inherit"
@@ -25,50 +33,49 @@ class ProcessorGenerator(object):
     def generate(file_path):
         # Load processor file
         file = ProcessorGenerator._open_file(file_path)
-        transitions = {}
-
-        #
-        sub_processors = {}
-
-        for sub_processor_key in file[ProcessorGenerator.SUB_PROCESSORS]:
-            sub_processor = ProcessorGenerator.generate(file[ProcessorGenerator.SUB_PROCESSORS][sub_processor_key])
-
-            if not sub_processor:
-                print(file["name"], "1: Sub-Processor Generation Error")
-                return None
-
-            sub_processors[sub_processor_key] = sub_processor
-
         if not file:
-            print(file["name"], "2: File Error")
-            return None
+            raise ProcessorDefinitionError(f"{file_path}: file not found or unreadable")
+
+        try:
+            sub_processor_paths = file[ProcessorGenerator.SUB_PROCESSORS]
+            initial_process_key = file[ProcessorGenerator.INITIAL_PROCESS]
+            inherit_path = file[ProcessorGenerator.INHERIT]
+            local_transitions = file[ProcessorGenerator.TRANSITIONS]
+        except KeyError as e:
+            raise ProcessorDefinitionError(f"{file_path}: missing required field {e}")
+
+        sub_processors = {}
+        for sub_processor_key, sub_processor_path in sub_processor_paths.items():
+            sub_processors[sub_processor_key] = ProcessorGenerator.generate(sub_processor_path)
 
         # Create blank processor instance
         processor = Processor()
 
         # Set initial process
         try:
-            processor.initial_process = processes[file[ProcessorGenerator.INITIAL_PROCESS]]
+            processor.initial_process = processes[initial_process_key]
         except KeyError:
             try:
-                processor.initial_process = sub_processors[file[ProcessorGenerator.INITIAL_PROCESS]]
+                processor.initial_process = sub_processors[initial_process_key]
             except KeyError:
-                print(file["name"], "3: [KeyError] Unable to set initial process")
-                return None
+                raise ProcessorDefinitionError(
+                    f"{file_path}: initial_process '{initial_process_key}' is not a registered process or sub-processor"
+                )
 
         # Copy all transitions from inherited processor (single inheritance only)
-        if file[ProcessorGenerator.INHERIT]:
-            inherit_file = ProcessorGenerator._open_file(file[ProcessorGenerator.INHERIT])
-
+        transitions = {}
+        if inherit_path:
+            inherit_file = ProcessorGenerator._open_file(inherit_path)
             if not inherit_file:
-                print(file["name"], "4")
-                return None
-
-            transitions = inherit_file[ProcessorGenerator.TRANSITIONS]
+                raise ProcessorDefinitionError(f"{file_path}: inherit target '{inherit_path}' not found or unreadable")
+            try:
+                transitions = inherit_file[ProcessorGenerator.TRANSITIONS]
+            except KeyError as e:
+                raise ProcessorDefinitionError(f"{inherit_path}: missing required field {e}")
 
         # Set/override with all local transitions
-        for transition in file[ProcessorGenerator.TRANSITIONS]:
-            transitions[transition] = file[ProcessorGenerator.TRANSITIONS][transition]
+        for transition in local_transitions:
+            transitions[transition] = local_transitions[transition]
 
         # Add transitions to processor
         for process_key in transitions:
@@ -83,8 +90,9 @@ class ProcessorGenerator(object):
                     try:
                         t_process = sub_processors[process_key]
                     except KeyError:
-                        print(file["name"], "5")
-                        return None
+                        raise ProcessorDefinitionError(
+                            f"{file_path}: transition source '{process_key}' is not a registered process or sub-processor"
+                        )
 
                 try:
                     t_signal = processes[signal_location].signals[signal_value]
@@ -92,22 +100,23 @@ class ProcessorGenerator(object):
                     try:
                         t_signal = sub_processors[signal_location].signals[signal_value]
                     except KeyError:
-                        print(file["name"], "6")
-                        return None
+                        raise ProcessorDefinitionError(
+                            f"{file_path}: transition signal '{signal}' on process '{process_key}' is not a known signal"
+                        )
 
+                next_key = transitions[process_key][signal]
                 try:
-                    t_next = processes[transitions[process_key][signal]]
+                    t_next = processes[next_key]
                 except KeyError:
                     try:
-                        t_next = sub_processors[transitions[process_key][signal]]
+                        t_next = sub_processors[next_key]
                     except KeyError:
-                        print(file["name"], "7")
-                        return None
+                        raise ProcessorDefinitionError(
+                            f"{file_path}: transition target '{next_key}' (process '{process_key}', signal '{signal}') "
+                            f"is not a registered process or sub-processor"
+                        )
 
-                t = Transition(t_process, t_signal, t_next)
-
-                # Add Transition
-                processor.add_transition(t)
+                processor.add_transition(Transition(t_process, t_signal, t_next))
 
         return processor
 
