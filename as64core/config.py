@@ -3,7 +3,7 @@ import json
 import os
 import uuid
 
-from as64core.resource_utils import resource_path, base_path
+from as64core.resource_utils import resource_path, user_data_path
 
 
 _config = {}
@@ -207,8 +207,8 @@ def load_config():
     global _config
     load_defaults()
 
-    config_path = base_path(_CONFIG_FILE_NAME)
-    legacy_path = base_path(_LEGACY_CONFIG_FILE_NAME)
+    config_path = user_data_path(_CONFIG_FILE_NAME)
+    legacy_path = user_data_path(_LEGACY_CONFIG_FILE_NAME)
     migrated = False
 
     try:
@@ -235,7 +235,7 @@ def load_defaults():
 
 
 def save_config():
-    config_path = base_path(_CONFIG_FILE_NAME)
+    config_path = user_data_path(_CONFIG_FILE_NAME)
     temporary_path = config_path + ".tmp"
     with open(temporary_path, "w", encoding="utf-8") as file:
         json.dump(_config, file, indent=4)

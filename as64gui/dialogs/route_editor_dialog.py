@@ -443,14 +443,14 @@ class RouteEditor(QtWidgets.QMainWindow):
 
     def open(self):
         """ Show native file dialog to select a .route file for use. """
-        file_name, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Open Route", resource_utils.base_path("routes"),
+        file_name, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Open Route", resource_utils.user_data_path("routes"),
                                                              "AS64 Route Files (*.as64)")
 
         if file_name:
             self.load_route(file_name)
 
     def save_as(self):
-        file_name, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save Route", resource_utils.base_path() + "/routes", "AS64 Route Files (*.as64)")
+        file_name, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save Route", resource_utils.user_data_path("routes"), "AS64 Route Files (*.as64)")
 
         if file_name != '':
             self.route_path = file_name
@@ -575,7 +575,7 @@ class RouteEditor(QtWidgets.QMainWindow):
 
         file_name = self.route_path
         if not file_name:
-            file_name, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save Route", resource_utils.base_path() + "/routes", "AS64 Route Files (*.as64)")
+            file_name, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save Route", resource_utils.user_data_path("routes"), "AS64 Route Files (*.as64)")
             if file_name == '':
                 return -1
 
@@ -815,4 +815,3 @@ class RouteEditor(QtWidgets.QMainWindow):
             default = SPLIT_NORMAL
 
         combo.currentIndexChanged.connect(partial(self.split_type_changed, combo))
-

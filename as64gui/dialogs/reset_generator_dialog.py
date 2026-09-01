@@ -185,7 +185,7 @@ class ResetGeneratorDialog(QtWidgets.QDialog):
 
     def _prepare_dialog(self):
         self._profile_id = config.get_active_capture_profile_id()
-        self._profile_template_dir = resource_utils.base_path(
+        self._profile_template_dir = resource_utils.user_data_path(
             os.path.join(self.TEMPLATE_DIR, "profiles", self._profile_id)
         )
         self._reset_generator = None

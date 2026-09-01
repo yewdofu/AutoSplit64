@@ -256,7 +256,7 @@ class CaptureEditor(QtWidgets.QDialog):
     def _copy_reset_templates(self, profile_id, source_paths):
         keys = ("reset_frame_one", "reset_frame_two")
         names = ("reset_one.jpg", "reset_two.jpg")
-        destination_dir = resource_utils.base_path(os.path.join("templates", "profiles", profile_id))
+        destination_dir = resource_utils.user_data_path(os.path.join("templates", "profiles", profile_id))
 
         for key, name, source_path in zip(keys, names, source_paths):
             if source_path == config.get_default("advanced", key):
