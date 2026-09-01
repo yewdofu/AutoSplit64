@@ -78,6 +78,11 @@ class App(QtWidgets.QMainWindow):
         self.initialize()
         self.show()
 
+    def _set_and_save(self, section, key, value):
+        """Single path every config change in this class goes through to persist immediately."""
+        config.set_key(section, key, value)
+        config.save_config()
+
     def set_always_on_top(self, on_top):
         if on_top:
             self.setWindowFlags(QtCore.Qt.FramelessWindowHint | QtCore.Qt.WindowStaysOnTopHint)
@@ -203,8 +208,7 @@ class App(QtWidgets.QMainWindow):
         if not route:
             self.display_error_message("Could not load route", "Route Error")
             self._load_route_dir()
-            config.set_key("route", "path", "")
-            config.save_config()
+            self._set_and_save("route", "path", "")
             return False
 
         error = route_loader.validate_route(route)
@@ -309,8 +313,7 @@ class App(QtWidgets.QMainWindow):
         # Connections
         if action == srl_action:
             checked = srl_action.isChecked()
-            config.set_key("general", "srl_mode", checked)
-            config.save_config()
+            self._set_and_save("general", "srl_mode", checked)
         elif action == edit_route:
             self.dialogs["route_editor"].show()
         elif action == file_action:
@@ -335,8 +338,7 @@ class App(QtWidgets.QMainWindow):
             self.dialogs["output_dialog"].show()
         elif action == on_top_action:
             checked = on_top_action.isChecked()
-            config.set_key("general", "on_top", checked)
-            config.save_config()
+            self._set_and_save("general", "on_top", checked)
             self.set_always_on_top(config.get("general", "on_top"))
         elif action == about_action:
             self.dialogs["about_dialog"].show()
@@ -414,15 +416,13 @@ class App(QtWidgets.QMainWindow):
 
     def _save_open_route(self, file_path):
         prev_route = config.get("route", "path")
-        config.set_key("route", "path", file_path)
-        config.save_config()
+        self._set_and_save("route", "path", file_path)
         success = self.open_route()
 
         if success:
             return
         else:
-            config.set_key("route", "path", prev_route)
-            config.save_config()
+            self._set_and_save("route", "path", prev_route)
             self.open_route()
 
     def _reset(self):
