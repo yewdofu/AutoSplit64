@@ -77,6 +77,8 @@ class ProcessRunStart(Process):
         return self.signals["LOOP"]
 
     def on_transition(self):
+        self._prev_prediction = -1
+        self._jump_predictions = 0
         as64core.enable_fade_count(False)
         as64core.fps = 6
 
@@ -124,6 +126,8 @@ class ProcessRunStartUpSegment(Process):
         return self.signals["LOOP"]
 
     def on_transition(self):
+        self._prev_prediction = -1
+        self._jump_predictions = 0
         as64core.enable_fade_count(False)
         as64core.fps = 6
 
@@ -514,6 +518,8 @@ class ProcessFileSelectSplit(Process):
         return np.any(np.abs(region_int_r - region_int_g) > 25)
 
     def on_transition(self):
+        self._prev_prediction = -1
+        self._jump_predictions = 0
         super().on_transition()
         as64core.fps = 29.97
         as64core.enable_fade_count(True)

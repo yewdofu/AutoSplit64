@@ -94,6 +94,7 @@ class Base(Thread):
 
         # Initialize ProcessorSwitch
         self._processor_switch = ProcessorSwitch()
+        self._last_livesplit_index = None
 
         # Star Skip Error Correction
         self._matching_consecutive_predictions = 0
@@ -284,9 +285,7 @@ class Base(Thread):
                 if not self._running:
                     break
 
-                ls_index = max(livesplit.split_index(self._ls_socket), 0)
-                if ls_index != self.split_index():
-                    self.set_split_index(ls_index)
+                self._sync_livesplit_state(livesplit.split_index(self._ls_socket))
 
                 self.analyze_fade_status()
 
@@ -563,6 +562,41 @@ class Base(Thread):
         as64.last_split = 0
         as64.collection_time = 0
         as64.xcam_count = 0
+        as64.xcam_percent = 0.0
+        as64.in_xcam = False
+        as64.fade_status = NO_FADE
+
+    def _sync_livesplit_state(self, livesplit_index):
+        """Track LiveSplit's raw index and re-arm after an external reset."""
+        if livesplit_index is False:
+            return
+
+        was_reset = (
+            livesplit_index < 0
+            and self._last_livesplit_index is not None
+            and self._last_livesplit_index >= 0
+        )
+
+        normalized_index = max(livesplit_index, 0)
+        if normalized_index != self.split_index():
+            self.set_split_index(normalized_index)
+
+        if was_reset:
+            self._rearm_initial_timing()
+
+        self._last_livesplit_index = livesplit_index
+
+    def _rearm_initial_timing(self):
+        """Return detection to its initial state after LiveSplit is reset."""
+        self.set_in_game(False)
+        self.enable_predictions(True)
+        self.enable_fade_count(False)
+        self.enable_xcam_count(False)
+        self.set_star_count(self._route.initial_star)
+
+        self._matching_consecutive_predictions = 0
+        self._previous_prediction = PredictionInfo(0, 0)
+        as64.last_split = 0
         as64.xcam_percent = 0.0
         as64.in_xcam = False
         as64.fade_status = NO_FADE

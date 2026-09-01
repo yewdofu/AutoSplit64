@@ -35,6 +35,73 @@ def test_new_base_resets_timing_detection_state(monkeypatch):
     assert runtime.fade_status == base_module.NO_FADE
 
 
+def test_manual_livesplit_reset_rearms_initial_timing(monkeypatch):
+    import as64core.base as base_module
+
+    initial_split = SimpleNamespace(star_count=81)
+    runtime = SimpleNamespace(
+        star_count=81,
+        fadeout_count=2,
+        fadein_count=1,
+        xcam_count=3,
+        xcam_percent=0.8,
+        in_xcam=True,
+        fade_status="stale",
+        last_split=123.0,
+        collection_time=0.0,
+        previous_split_initial_star=0,
+        next_split_split_star=0,
+    )
+    monkeypatch.setattr(base_module, "as64", runtime, raising=False)
+
+    base = base_module.Base.__new__(base_module.Base)
+    base._route = SimpleNamespace(initial_star=74, splits=[initial_split])
+    base._current_split = initial_split
+    base._last_livesplit_index = 0
+    base._in_game = True
+    base._make_predictions = False
+    base._count_fades = True
+    base._count_xcams = True
+    base._split_on_current_xcam = True
+    base._matching_consecutive_predictions = 4
+    base._previous_prediction = SimpleNamespace(prediction=81, probability=1.0)
+    base._prediction_processing_length = 3
+    base._update_listener = lambda *args: None
+
+    base._sync_livesplit_state(-1)
+
+    assert base._last_livesplit_index == -1
+    assert base._in_game is False
+    assert base._make_predictions is True
+    assert base._count_fades is False
+    assert base._count_xcams is False
+    assert base._split_on_current_xcam is False
+    assert runtime.star_count == 74
+    assert runtime.fadeout_count == 0
+    assert runtime.fadein_count == 0
+    assert runtime.xcam_count == 0
+    assert runtime.xcam_percent == 0.0
+    assert runtime.in_xcam is False
+    assert runtime.fade_status == base_module.NO_FADE
+    assert runtime.last_split == 0
+
+
+def test_initial_stopped_livesplit_does_not_rearm(monkeypatch):
+    import as64core.base as base_module
+
+    base = base_module.Base.__new__(base_module.Base)
+    base._last_livesplit_index = None
+    base.split_index = lambda: 0
+    rearm_calls = []
+    base._rearm_initial_timing = lambda: rearm_calls.append(True)
+
+    base._sync_livesplit_state(-1)
+    base._sync_livesplit_state(-1)
+
+    assert rearm_calls == []
+    assert base._last_livesplit_index == -1
+
+
 def test_up_rta_xcam_detection_starts_timer(monkeypatch):
     import as64processes.xcam as xcam_module
 
