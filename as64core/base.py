@@ -180,25 +180,25 @@ class Base(Thread):
     def validity_check(self):
         if not self._game_capture.is_valid():
             if config.get("game", "capture_source") == "device":
-                self._error_occurred("Could not open capture device (index " + str(config.get("game", "device_index")) + ")")
+                self._error_occurred("Could not open capture device (index " + str(config.get("game", "device_index")) + ")", capture_recoverable=True)
             else:
-                self._error_occurred("Could not find " + config.get("game", "process_name"))
+                self._error_occurred("Could not find " + config.get("game", "process_name"), capture_recoverable=True)
             return False
 
         try:
             self._game_capture.capture()
         except:
             if config.get("game", "capture_source") == "device":
-                self._error_occurred("Could not capture from device (index " + str(config.get("game", "device_index")) + ")")
+                self._error_occurred("Could not capture from device (index " + str(config.get("game", "device_index")) + ")", capture_recoverable=True)
             else:
-                self._error_occurred("Could not capture " + config.get("game", "process_name"))
+                self._error_occurred("Could not capture " + config.get("game", "process_name"), capture_recoverable=True)
             return False
 
         if config.get("game", "capture_source") == "device":
             deadline = time.time() + 2.0
             while self._game_capture.get_region(STAR_REGION) is None:
                 if time.time() > deadline:
-                    self._error_occurred("Could not open capture device (index " + str(config.get("game", "device_index")) + ")")
+                    self._error_occurred("Could not open capture device (index " + str(config.get("game", "device_index")) + ")", capture_recoverable=True)
                     return False
                 time.sleep(0.1)
                 try:
@@ -207,7 +207,7 @@ class Base(Thread):
                     pass
         else:
             if self._game_capture.get_region(STAR_REGION) is None:
-                self._error_occurred("Could not capture " + config.get("game", "process_name"))
+                self._error_occurred("Could not capture " + config.get("game", "process_name"), capture_recoverable=True)
                 return False
 
         current_capture_size = self._game_capture.get_capture_size()
@@ -265,9 +265,9 @@ class Base(Thread):
                     if not self._running:
                         break
                     if config.get("game", "capture_source") == "device":
-                        self._error_occurred("Unable to capture from device (index " + str(config.get("game", "device_index")) + ")")
+                        self._error_occurred("Unable to capture from device (index " + str(config.get("game", "device_index")) + ")", capture_recoverable=True)
                     else:
-                        self._error_occurred("Unable to capture " + config.get("game", "process_name"))
+                        self._error_occurred("Unable to capture " + config.get("game", "process_name"), capture_recoverable=True)
 
                 if not self._running:
                     break
@@ -586,9 +586,18 @@ class Base(Thread):
     def set_error_listener(self, listener):
         self._error_listener = listener
 
-    def _error_occurred(self, error):
+    def _error_occurred(self, error, capture_recoverable=False):
+        """
+        Report an error to the listener and stop.
+
+        capture_recoverable marks failures caused by the capture source
+        itself being unavailable (device not open, window not found), which
+        a caller may choose to retry. Everything else - LiveSplit not
+        connected, a bad route, an unloadable model, changed capture
+        dimensions - won't fix itself by retrying and must be surfaced.
+        """
         try:
-            self._error_listener(error)
+            self._error_listener(error, capture_recoverable)
         except AttributeError:
             pass
 

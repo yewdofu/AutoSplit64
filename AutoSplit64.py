@@ -189,8 +189,12 @@ class AutoSplit64(QtCore.QObject):
     def on_update(self, index, star_count, split_star):
         self.app.update_display(index, star_count, split_star)
 
-    def on_error(self, error):
-        if config.get("game", "capture_source") == "device" and not self._device_retrying:
+    def on_error(self, error, capture_recoverable=False):
+        # Only wait-and-retry when the capture device itself is what failed.
+        # Anything else (LiveSplit not connected, bad route, unloadable
+        # model) would just fail again on the retry, looping forever without
+        # ever showing the user the error.
+        if capture_recoverable and config.get("game", "capture_source") == "device" and not self._device_retrying:
             self._device_retrying = True
             self.capture_waiting.emit(True)
             Thread(target=self._retry_device_capture, daemon=True).start()
