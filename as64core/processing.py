@@ -4,7 +4,6 @@ import json
 from as64core.resource_utils import resource_path
 
 processes = {}
-subprocess_hooks = {}
 
 
 def register_process(name, process):
@@ -13,10 +12,6 @@ def register_process(name, process):
 
 def insert_global_hook(name, process):
     processes[name] = process
-
-
-def insert_global_processor_hook(old_path, new_path):
-    subprocess_hooks[old_path] = new_path
 
 
 class ProcessorDefinitionError(Exception):
@@ -37,14 +32,9 @@ class ProcessorGenerator(object):
     @staticmethod
     def generate(file_path):
         # Load processor file
-        try:
-            p = subprocess_hooks[file_path]
-        except KeyError:
-            p = file_path
-
-        file = ProcessorGenerator._open_file(p)
+        file = ProcessorGenerator._open_file(file_path)
         if not file:
-            raise ProcessorDefinitionError(f"{p}: file not found or unreadable")
+            raise ProcessorDefinitionError(f"{file_path}: file not found or unreadable")
 
         try:
             sub_processor_paths = file[ProcessorGenerator.SUB_PROCESSORS]
@@ -52,7 +42,7 @@ class ProcessorGenerator(object):
             inherit_path = file[ProcessorGenerator.INHERIT]
             local_transitions = file[ProcessorGenerator.TRANSITIONS]
         except KeyError as e:
-            raise ProcessorDefinitionError(f"{p}: missing required field {e}")
+            raise ProcessorDefinitionError(f"{file_path}: missing required field {e}")
 
         sub_processors = {}
         for sub_processor_key, sub_processor_path in sub_processor_paths.items():
@@ -69,7 +59,7 @@ class ProcessorGenerator(object):
                 processor.initial_process = sub_processors[initial_process_key]
             except KeyError:
                 raise ProcessorDefinitionError(
-                    f"{p}: initial_process '{initial_process_key}' is not a registered process or sub-processor"
+                    f"{file_path}: initial_process '{initial_process_key}' is not a registered process or sub-processor"
                 )
 
         # Copy all transitions from inherited processor (single inheritance only)
@@ -77,7 +67,7 @@ class ProcessorGenerator(object):
         if inherit_path:
             inherit_file = ProcessorGenerator._open_file(inherit_path)
             if not inherit_file:
-                raise ProcessorDefinitionError(f"{p}: inherit target '{inherit_path}' not found or unreadable")
+                raise ProcessorDefinitionError(f"{file_path}: inherit target '{inherit_path}' not found or unreadable")
             try:
                 transitions = inherit_file[ProcessorGenerator.TRANSITIONS]
             except KeyError as e:
@@ -101,7 +91,7 @@ class ProcessorGenerator(object):
                         t_process = sub_processors[process_key]
                     except KeyError:
                         raise ProcessorDefinitionError(
-                            f"{p}: transition source '{process_key}' is not a registered process or sub-processor"
+                            f"{file_path}: transition source '{process_key}' is not a registered process or sub-processor"
                         )
 
                 try:
@@ -111,7 +101,7 @@ class ProcessorGenerator(object):
                         t_signal = sub_processors[signal_location].signals[signal_value]
                     except KeyError:
                         raise ProcessorDefinitionError(
-                            f"{p}: transition signal '{signal}' on process '{process_key}' is not a known signal"
+                            f"{file_path}: transition signal '{signal}' on process '{process_key}' is not a known signal"
                         )
 
                 next_key = transitions[process_key][signal]
@@ -122,7 +112,7 @@ class ProcessorGenerator(object):
                         t_next = sub_processors[next_key]
                     except KeyError:
                         raise ProcessorDefinitionError(
-                            f"{p}: transition target '{next_key}' (process '{process_key}', signal '{signal}') "
+                            f"{file_path}: transition target '{next_key}' (process '{process_key}', signal '{signal}') "
                             f"is not a registered process or sub-processor"
                         )
 
@@ -141,24 +131,6 @@ class ProcessorGenerator(object):
             return None
 
         return data
-
-
-def generate_processor(file_path):
-    with open(file_path) as file:
-        data = json.load(file)
-
-    # Create Processor Instance
-    processor = Processor()
-
-    # Set initial process
-    processor.initial_process = processes[data["initial_process"]]
-
-    # Create Transitions
-    for proc in data["transitions"]:
-        for signal in data["transitions"][proc]:
-            processor.add_transition(Transition(processes[proc], processes[proc].signals[signal], processes[data["transitions"][proc][signal]]))
-
-    return processor
 
 
 class Signal(object):

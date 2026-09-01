@@ -10,7 +10,7 @@ from as64gui.app import App
 import as64core
 from as64core import config
 from as64core.game_capture import open_video_device
-from as64core.processing import register_process, insert_global_hook, insert_global_processor_hook, ProcessorGenerator
+from as64core.processing import register_process, insert_global_hook, ProcessorGenerator
 from as64core.route_loader import load
 from as64core.updater import Updater
 
