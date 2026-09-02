@@ -34,7 +34,15 @@ go build -ldflags="-H windowsgui" -o ..\dist\AutoSplit64\AS64Updater.exe .
 uv run --group convert python tools/convert_to_onnx.py
 ```
 
-There are no configured test or lint commands.
+```bash
+# テスト（pytest。CIでもPRごとに実行される）
+uv run --no-sync pytest -q
+
+# リリースzipの検証（zip作成後。CIでも公開直前に実行される）
+python tools/verify_release_zip.py AutoSplit64-<version>.zip
+```
+
+lintは設定されていない。
 
 ## Architecture
 
