@@ -9,6 +9,7 @@ import requests
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from as64core import route_loader, config
+from as64core.route import Route
 from as64core.resource_utils import user_data_path, resource_path, rel_to_abs
 from . import constants
 from .widgets import PictureButton, StateButton, StarCountDisplay, SplitListWidget
@@ -72,8 +73,12 @@ class App(QtWidgets.QMainWindow):
             "output_dialog": OutputDialog(self)
         }
 
+        # Nothing is listed from here - it stays only as where the open and
+        # save dialogs start.
+        os.makedirs(user_data_path(constants.ROUTES_DIR), exist_ok=True)
+
         self._routes = {}
-        self._load_route_dir()
+        self._load_routes()
 
         self.initialize()
         self.show()
@@ -260,7 +265,7 @@ class App(QtWidgets.QMainWindow):
         if error:
             self.display_error_message(error, "Route Error")
             if route_missing:
-                self._load_route_dir()
+                self._load_routes()
                 self._set_and_save("route", "path", "")
             return False
 
@@ -275,6 +280,25 @@ class App(QtWidgets.QMainWindow):
 
         if file_path:
             self._save_open_route(file_path)
+
+    def reset_route_history(self):
+        """
+        Empty the history, clearing the list outright. The route currently
+        open stays open and configured; it is simply no longer listed. Asks
+        first, since nothing restores the history.
+        """
+        confirmation = QtWidgets.QMessageBox.question(
+            self,
+            "Reset History",
+            "Forget every route in the list?"
+            "\n\nThe route currently open stays open, and no route files are deleted.",
+        )
+
+        if confirmation != QtWidgets.QMessageBox.Yes:
+            return
+
+        self._set_and_save("route", "recent", [])
+        self._load_routes()
 
     def update_found(self, info):
         # TODO: RENAME FUNCTION
@@ -304,18 +328,17 @@ class App(QtWidgets.QMainWindow):
         for category in sorted(self._routes, key=lambda text:[int(c) if c.isdigit() else c for c in re.split(r'(\d+)', text)]):
             if len(self._routes[category]) == 1 or category == "":
                 for route in self._routes[category]:
-                    route_menu.addAction(route[0])
-                    route_actions[route[0]] = partial(self._save_open_route, route[1])
+                    route_actions[route_menu.addAction(route[0])] = partial(self._save_open_route, route[1])
             else:
                 category_menus[category] = QtWidgets.QMenu(str(category))
                 route_menu.addMenu(category_menus[category])
 
                 for route in self._routes[category]:
-                    category_menus[category].addAction(route[0])
-                    route_actions[route[0]] = partial(self._save_open_route, route[1])
+                    route_actions[category_menus[category].addAction(route[0])] = partial(self._save_open_route, route[1])
 
         route_menu.addSeparator()
         file_action = route_menu.addAction("From File")
+        reset_history_action = route_menu.addAction("Reset History")
 
         # Actions
         edit_route = context_menu.addAction("Edit Route")
@@ -348,6 +371,8 @@ class App(QtWidgets.QMainWindow):
             self.dialogs["route_editor"].show()
         elif action == file_action:
             self.open_route_browser()
+        elif action == reset_history_action:
+            self.reset_route_history()
         elif action == cords_action:
             # Capture Setup opens its own capture of the same window/device;
             # doing that while the core holds it crashes inside OpenCV.
@@ -386,8 +411,8 @@ class App(QtWidgets.QMainWindow):
             self.close()
         else:
             try:
-                route_actions[action.text()]()
-            except (KeyError, AttributeError):
+                route_actions[action]()
+            except KeyError:
                 pass
 
     def mousePressEvent(self, event):
@@ -426,30 +451,44 @@ class App(QtWidgets.QMainWindow):
         msg.setText(message)
         msg.show()
 
-    def _load_route_dir(self):
+    def _load_routes(self):
+        """
+        Collect every route to offer in the menu, grouped by category - the
+        routes opened so far that are still on disk. Where a route file
+        happens to live is not something the menu should expose.
+        """
         self._routes = {}
 
-        routes_dir = user_data_path("routes")
-        if not os.path.isdir(routes_dir):
-            os.makedirs(routes_dir)
-            return
+        for route_path in self._route_paths():
+            route = route_loader.load(route_path)
 
-        for file in os.listdir(routes_dir):
-            if file.endswith(".as64"):
-                route_path = os.path.join(routes_dir, file)
-                route = route_loader.load(route_path)
+            if isinstance(route, Route):
+                self._routes.setdefault(route.category, []).append([route.title, route_path])
 
-                if route:
-                    category = route.category
+    @staticmethod
+    def _route_paths():
+        """
+        Paths of every route to list - the routes opened so far, wherever
+        they live. Deleted files are dropped rather than listed as dead
+        entries, and a route reachable through two spellings of the same
+        path is listed once.
+        """
+        paths = []
+        listed = set()
 
-                    try:
-                        self._routes[category].append([route.title, route_path])
-                    except KeyError:
-                        self._routes[category] = []
-                        self._routes[category].append([route.title, route_path])
+        for path in config.get("route", "recent"):
+            key = os.path.normcase(os.path.normpath(path))
+
+            if key in listed or not os.path.isfile(path):
+                continue
+
+            listed.add(key)
+            paths.append(path)
+
+        return paths
 
     def _on_route_update(self):
-        self._load_route_dir()
+        self._load_routes()
         self.open_route()
 
     def _save_open_route(self, file_path):
@@ -465,8 +504,31 @@ class App(QtWidgets.QMainWindow):
             return
 
         self._set_and_save("route", "path", file_path)
+        self._remember_recent_route(file_path)
+        # The route just opened has to reach the menu now, not on next launch.
+        self._load_routes()
         self._display_route(route)
         self._reset()
+
+    def _remember_recent_route(self, file_path):
+        """Persist file_path at the front of the recently opened route history."""
+        self._set_and_save("route", "recent", self._updated_recent_routes(config.get("route", "recent"), file_path))
+
+    @staticmethod
+    def _updated_recent_routes(recent, file_path, limit=constants.MAX_RECENT_ROUTES):
+        """
+        Recently opened route paths with file_path moved to the front. Pure
+        function so the history rules (newest first, no duplicates, capped)
+        can be tested without touching config or the GUI.
+        """
+        opened = os.path.normcase(os.path.normpath(file_path))
+        updated = [file_path]
+
+        for path in recent:
+            if os.path.normcase(os.path.normpath(path)) != opened:
+                updated.append(path)
+
+        return updated[:limit]
 
     def _reset(self):
         if self.start_btn.get_state() == "stop":

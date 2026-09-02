@@ -28,8 +28,9 @@ def _fake_with_recorder():
     fake.calls = []
     fake._reset = lambda: fake.calls.append("reset")
     fake._display_route = lambda route: fake.calls.append("display")
-    fake._load_route_dir = lambda: fake.calls.append("load_route_dir")
+    fake._load_routes = lambda: fake.calls.append("load_routes")
     fake._set_and_save = lambda s, k, v: fake.calls.append(("set_and_save", s, k, v))
+    fake._remember_recent_route = lambda path: fake.calls.append("remember_recent")
     fake.display_error_message = lambda msg, title: fake.calls.append(("error", msg))
     return fake
 
@@ -62,7 +63,7 @@ def test_save_open_route_success_saves_displays_restarts_once_in_order():
     fake = _fake_with_recorder()
     App._save_open_route(fake, "routes/16_lblj.as64")
     kinds = [c[0] if isinstance(c, tuple) else c for c in fake.calls]
-    assert kinds == ["set_and_save", "display", "reset"]
+    assert kinds == ["set_and_save", "remember_recent", "load_routes", "display", "reset"]
 
 
 # --- open_route: preserves its three original branches --------------------------
@@ -89,7 +90,7 @@ def test_open_route_missing_file_resets_first_then_cleans_up(monkeypatch):
 
     assert fake.calls[0] == "reset"
     assert ("error", "Could not load route") in fake.calls
-    assert "load_route_dir" in fake.calls
+    assert "load_routes" in fake.calls
     assert ("set_and_save", "route", "path", "") in fake.calls
     assert "display" not in fake.calls
     assert result is False

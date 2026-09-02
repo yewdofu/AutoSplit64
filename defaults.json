@@ -65,7 +65,8 @@
         "output_update_rate": 10
     },
     "route": {
-        "path": ""
+        "path": "",
+        "recent": []
     },
     "connection": {
         "ls_host": "localhost",
