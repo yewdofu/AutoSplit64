@@ -16,10 +16,10 @@ import (
 	"github.com/lxn/win"
 )
 
-
 const (
-	apiURL    = "https://api.github.com/repos/yewdofu/AutoSplit64/releases/latest"
-	patchFile = "patch.zip"
+	apiURL        = "https://api.github.com/repos/yewdofu/AutoSplit64/releases/latest"
+	patchFileName = "patch.zip"
+	appExeName    = "AutoSplit64.exe"
 )
 
 type Release struct {
@@ -39,6 +39,10 @@ type UpdaterWindow struct {
 	progressBar *walk.ProgressBar
 	abortBtn    *walk.PushButton
 	aborted     bool
+
+	selfExe   string // absolute path of this running executable
+	baseDir   string // install directory (the directory holding this executable)
+	patchPath string // downloaded release zip, inside baseDir
 }
 
 func main() {
@@ -81,15 +85,34 @@ func main() {
 	u.Run()
 }
 
+// setStatus and setProgress are no-ops when there is no window, so the update
+// logic can be driven directly from tests.
+
 func (u *UpdaterWindow) setStatus(text string) {
+	if u.MainWindow == nil {
+		return
+	}
 	u.Synchronize(func() { u.statusLabel.SetText(text) })
 }
 
 func (u *UpdaterWindow) setProgress(pct int) {
+	if u.MainWindow == nil {
+		return
+	}
 	u.Synchronize(func() { u.progressBar.SetValue(pct) })
 }
 
 func (u *UpdaterWindow) run() {
+	if err := u.resolvePaths(); err != nil {
+		u.setStatus(fmt.Sprintf("Error: %v", err))
+		return
+	}
+
+	// Clean up the ".old" residue left by a previous self-replacement. It is
+	// usually gone by now, but removal can fail while the old image is still
+	// mapped into memory; that error is ignored.
+	_ = os.Remove(u.selfExe + ".old")
+
 	release, err := fetchRelease()
 	if err != nil {
 		u.setStatus(fmt.Sprintf("Error: %v", err))
@@ -115,11 +138,11 @@ func (u *UpdaterWindow) run() {
 		if !u.aborted {
 			u.setStatus(fmt.Sprintf("Download error: %v", err))
 		}
-		os.Remove(patchFile)
+		os.Remove(u.patchPath)
 		return
 	}
 	if u.aborted {
-		os.Remove(patchFile)
+		os.Remove(u.patchPath)
 		return
 	}
 
@@ -127,15 +150,35 @@ func (u *UpdaterWindow) run() {
 	u.setProgress(0)
 	if err := u.extract(); err != nil {
 		u.setStatus(fmt.Sprintf("Install error: %v", err))
-		os.Remove(patchFile)
+		os.Remove(u.patchPath)
 		return
 	}
-	os.Remove(patchFile)
+	os.Remove(u.patchPath)
 
-	exePath, _ := filepath.Abs("AutoSplit64.exe")
-	exec.Command(exePath).Start()
+	cmd := exec.Command(filepath.Join(u.baseDir, appExeName))
+	cmd.Dir = u.baseDir
+	cmd.Start()
 
 	u.Synchronize(func() { u.MainWindow.Close() })
+}
+
+// resolvePaths anchors every path this updater touches to the directory of the
+// running executable. The working directory is inherited from whatever started
+// AutoSplit64.exe and is not necessarily the install directory, so it cannot be
+// used to locate the installation.
+func (u *UpdaterWindow) resolvePaths() error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	abs, err := filepath.Abs(exe)
+	if err != nil {
+		return err
+	}
+	u.selfExe = filepath.Clean(abs)
+	u.baseDir = filepath.Dir(u.selfExe)
+	u.patchPath = filepath.Join(u.baseDir, patchFileName)
+	return nil
 }
 
 func fetchRelease() (*Release, error) {
@@ -164,7 +207,7 @@ func (u *UpdaterWindow) download(url string, totalSize int64) error {
 		totalSize = resp.ContentLength
 	}
 
-	f, err := os.Create(patchFile)
+	f, err := os.Create(u.patchPath)
 	if err != nil {
 		return err
 	}
@@ -197,11 +240,19 @@ func (u *UpdaterWindow) download(url string, totalSize int64) error {
 }
 
 func (u *UpdaterWindow) extract() error {
-	r, err := zip.OpenReader(patchFile)
+	r, err := zip.OpenReader(u.patchPath)
 	if err != nil {
 		return err
 	}
 	defer r.Close()
+
+	basePath := u.baseDir
+
+	tmpDir, err := os.MkdirTemp(basePath, ".as64update-tmp")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmpDir)
 
 	var totalSize int64
 	for _, f := range r.File {
@@ -213,30 +264,48 @@ func (u *UpdaterWindow) extract() error {
 
 	var done int64
 	for _, f := range r.File {
-		if err := extractFile(f); err != nil {
+		if err := extractFile(f, basePath, tmpDir); err != nil {
 			return err
 		}
 		done += int64(f.UncompressedSize64)
 		u.setProgress(int(done * 100 / totalSize))
 	}
-	return nil
+
+	return replaceFiles(tmpDir, basePath, u.selfExe)
 }
 
-func extractFile(f *zip.File) error {
+// extractFile validates that the entry resolves inside basePath, then writes
+// it to the same relative location under tmpDir so replaceFiles can move it
+// into place with a path that has already been checked.
+func extractFile(f *zip.File, basePath, tmpDir string) error {
 	name := filepath.FromSlash(f.Name)
-
-	if f.FileInfo().IsDir() {
-		return os.MkdirAll(name, 0755)
-	}
-	if err := os.MkdirAll(filepath.Dir(name), 0755); err != nil {
-		return err
+	if filepath.IsAbs(name) {
+		return fmt.Errorf("illegal file path in zip: %s", f.Name)
 	}
 
-	dst, err := os.Create(name)
+	dst := filepath.Clean(filepath.Join(basePath, name))
+	if dst != basePath && !strings.HasPrefix(dst, basePath+string(os.PathSeparator)) {
+		return fmt.Errorf("illegal file path in zip: %s", f.Name)
+	}
+
+	rel, err := filepath.Rel(basePath, dst)
 	if err != nil {
 		return err
 	}
-	defer dst.Close()
+	extractPath := filepath.Join(tmpDir, rel)
+
+	if f.FileInfo().IsDir() {
+		return os.MkdirAll(extractPath, 0755)
+	}
+	if err := os.MkdirAll(filepath.Dir(extractPath), 0755); err != nil {
+		return err
+	}
+
+	out, err := os.Create(extractPath)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
 
 	src, err := f.Open()
 	if err != nil {
@@ -244,6 +313,57 @@ func extractFile(f *zip.File) error {
 	}
 	defer src.Close()
 
-	_, err = io.Copy(dst, src)
+	_, err = io.Copy(out, src)
 	return err
+}
+
+func replaceFiles(tmpDir, basePath, selfExe string) error {
+	return filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(tmpDir, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		dest := filepath.Join(basePath, rel)
+		if info.IsDir() {
+			return os.MkdirAll(dest, 0755)
+		}
+		if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
+			return err
+		}
+		if selfExe != "" && samePath(dest, selfExe) {
+			return replaceSelf(path, selfExe)
+		}
+		return os.Rename(path, dest)
+	})
+}
+
+// samePath compares two file paths ignoring case, which is required on
+// Windows where paths are case-insensitive.
+func samePath(a, b string) bool {
+	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
+}
+
+// replaceSelf swaps the running updater executable for the staged replacement.
+// Windows permits renaming an executable image that is currently in use, so the
+// running file is first moved aside to ".old". The new file then takes its
+// place via an ordinary rename, and removal of the old file is attempted
+// best-effort (it may still be mapped into memory, in which case deletion fails
+// with "Access is denied"; that is fine and the file is cleaned up on a later
+// run).
+func replaceSelf(newPath, selfExe string) error {
+	oldExe := selfExe + ".old"
+	if err := os.Rename(selfExe, oldExe); err != nil {
+		return err
+	}
+	if err := os.Rename(newPath, selfExe); err != nil {
+		return err
+	}
+	_ = os.Remove(oldExe)
+	return nil
 }

@@ -118,3 +118,28 @@ Output: `dist/AutoSplit64/AutoSplit64.exe` (onedir形式, ~270MB)
 - **Thread-based processing**: `as64core/base.py` runs as a `threading.Thread`; GUI communicates via PyQt signals
 - **ProcessorSwitch**: State machine that dispatches to registered `Process` objects based on split type
 - **Resource vs. user-data paths**: `as64core/resource_utils.py` exposes two APIs — `resource_path()` for bundled, read-only assets (resolves against `sys._MEIPASS` when frozen, the project root otherwise) and `user_data_path()` for writable data like `config.json` and routes (resolves next to the executable when frozen, the project root otherwise)
+
+## リリース前の確認
+
+アップデートを実行するのは**ひとつ前のリリースに同梱された updater** なので、リリースzipの不備は後続のリリースでは直せない。タグを打つ前に以下を通すこと。
+
+```bash
+# 1. 名前の整合性 + 既存のテスト
+uv run --no-sync pytest -q
+
+# 2. updaterの更新処理（Windows必須）
+cd updater
+go test ./...
+
+# 3. リリースzipの中身（zipを作った後。CIでも公開直前に自動実行される）
+python tools/verify_release_zip.py AutoSplit64-<version>.zip
+```
+
+`updater/main_test.go` は**実際に起動したプロセス**として更新処理を走らせる。テストバイナリを一時的なインストール先に `AS64Updater.exe` としてコピーし、自分自身を含むzipを、インストール先とは別のカレントディレクトリから適用させる。これにより以下が同時に検証される。
+
+- 実行中のexeは書き込みオープンできない（`os.Create` が失敗すること自体をテストで固定）
+- リネームによる自己すり替えが成立する
+- 展開先がカレントディレクトリではなく実行ファイルの位置を基準にしている
+- zipエントリがインストール先の外を指す場合は展開を中断し、インストール先を書き換えない
+
+CI（`.github/workflows/test.yml`）で pytest と go test の両方が全PRに対して走る。
