@@ -1,5 +1,5 @@
 import time
-from threading import Event, Thread
+from threading import Event, Lock, Thread
 import logging
 
 import cv2
@@ -70,6 +70,8 @@ class Base(Thread):
         # Main Loop Toggle
         self._running = False
         self._stop_event = Event()
+        self._stop_lock = Lock()
+        self._resources_released = False
 
         # Operation Mode
         self._operation_mode = as64.CONFIRMATION_MODE
@@ -92,6 +94,7 @@ class Base(Thread):
 
         # Initialize ProcessorSwitch
         self._processor_switch = ProcessorSwitch()
+        self._last_livesplit_index = None
 
         # Star Skip Error Correction
         self._matching_consecutive_predictions = 0
@@ -102,6 +105,7 @@ class Base(Thread):
 
         #
         self._in_game = False
+        self._reset_runtime_state()
 
         try:
             self._route_length = len(self._route.splits)
@@ -180,25 +184,25 @@ class Base(Thread):
     def validity_check(self):
         if not self._game_capture.is_valid():
             if config.get("game", "capture_source") == "device":
-                self._error_occurred("Could not open capture device (index " + str(config.get("game", "device_index")) + ")")
+                self._error_occurred("Could not open capture device (index " + str(config.get("game", "device_index")) + ")", capture_recoverable=True)
             else:
-                self._error_occurred("Could not find " + config.get("game", "process_name"))
+                self._error_occurred("Could not find " + config.get("game", "process_name"), capture_recoverable=True)
             return False
 
         try:
             self._game_capture.capture()
         except:
             if config.get("game", "capture_source") == "device":
-                self._error_occurred("Could not capture from device (index " + str(config.get("game", "device_index")) + ")")
+                self._error_occurred("Could not capture from device (index " + str(config.get("game", "device_index")) + ")", capture_recoverable=True)
             else:
-                self._error_occurred("Could not capture " + config.get("game", "process_name"))
+                self._error_occurred("Could not capture " + config.get("game", "process_name"), capture_recoverable=True)
             return False
 
         if config.get("game", "capture_source") == "device":
             deadline = time.time() + 2.0
             while self._game_capture.get_region(STAR_REGION) is None:
                 if time.time() > deadline:
-                    self._error_occurred("Could not open capture device (index " + str(config.get("game", "device_index")) + ")")
+                    self._error_occurred("Could not open capture device (index " + str(config.get("game", "device_index")) + ")", capture_recoverable=True)
                     return False
                 time.sleep(0.1)
                 try:
@@ -207,7 +211,7 @@ class Base(Thread):
                     pass
         else:
             if self._game_capture.get_region(STAR_REGION) is None:
-                self._error_occurred("Could not capture " + config.get("game", "process_name"))
+                self._error_occurred("Could not capture " + config.get("game", "process_name"), capture_recoverable=True)
                 return False
 
         current_capture_size = self._game_capture.get_capture_size()
@@ -234,10 +238,19 @@ class Base(Thread):
         self._stop_event.set()
         self._running = False
 
-        if isinstance(self._game_capture, DeviceCapture):
-            self._game_capture.release()
+        self._release_resources()
 
-        livesplit.disconnect(self._ls_socket)
+    def _release_resources(self):
+        """Release capture and LiveSplit resources exactly once."""
+        with self._stop_lock:
+            if self._resources_released:
+                return
+            self._resources_released = True
+
+            if isinstance(self._game_capture, DeviceCapture):
+                self._game_capture.release()
+
+            livesplit.disconnect(self._ls_socket)
 
     def run(self):
         try:
@@ -265,16 +278,14 @@ class Base(Thread):
                     if not self._running:
                         break
                     if config.get("game", "capture_source") == "device":
-                        self._error_occurred("Unable to capture from device (index " + str(config.get("game", "device_index")) + ")")
+                        self._error_occurred("Unable to capture from device (index " + str(config.get("game", "device_index")) + ")", capture_recoverable=True)
                     else:
-                        self._error_occurred("Unable to capture " + config.get("game", "process_name"))
+                        self._error_occurred("Unable to capture " + config.get("game", "process_name"), capture_recoverable=True)
 
                 if not self._running:
                     break
 
-                ls_index = max(livesplit.split_index(self._ls_socket), 0)
-                if ls_index != self.split_index():
-                    self.set_split_index(ls_index)
+                self._sync_livesplit_state(livesplit.split_index(self._ls_socket))
 
                 self.analyze_fade_status()
 
@@ -300,8 +311,7 @@ class Base(Thread):
         except Exception:
             self.logger.error("Fatal Error", exc_info=True)
         finally:
-            if isinstance(self._game_capture, DeviceCapture):
-                self._game_capture.release()
+            self._release_resources()
 
     def analyze_xcam_status(self):
         xcam = self._game_capture.get_region(XCAM_REGION)
@@ -545,6 +555,52 @@ class Base(Thread):
     def set_in_game(self, in_game):
         self._in_game = in_game
 
+    def _reset_runtime_state(self):
+        """Clear frame-detection state left by a previous Base instance."""
+        self._reset_fade_count()
+        as64.current_time = 0.0
+        as64.last_split = 0
+        as64.collection_time = 0
+        as64.xcam_count = 0
+        as64.xcam_percent = 0.0
+        as64.in_xcam = False
+        as64.fade_status = NO_FADE
+
+    def _sync_livesplit_state(self, livesplit_index):
+        """Track LiveSplit's raw index and re-arm after an external reset."""
+        if livesplit_index is False:
+            return
+
+        was_reset = (
+            livesplit_index < 0
+            and self._last_livesplit_index is not None
+            and self._last_livesplit_index >= 0
+        )
+
+        normalized_index = max(livesplit_index, 0)
+        if normalized_index != self.split_index():
+            self.set_split_index(normalized_index)
+
+        if was_reset:
+            self._rearm_initial_timing()
+
+        self._last_livesplit_index = livesplit_index
+
+    def _rearm_initial_timing(self):
+        """Return detection to its initial state after LiveSplit is reset."""
+        self.set_in_game(False)
+        self.enable_predictions(True)
+        self.enable_fade_count(False)
+        self.enable_xcam_count(False)
+        self.set_star_count(self._route.initial_star)
+
+        self._matching_consecutive_predictions = 0
+        self._previous_prediction = PredictionInfo(0, 0)
+        as64.last_split = 0
+        as64.xcam_percent = 0.0
+        as64.in_xcam = False
+        as64.fade_status = NO_FADE
+
     def set_star_count(self, star_count):
         self._reset_fade_count()
         as64.xcam_count = 0
@@ -586,9 +642,18 @@ class Base(Thread):
     def set_error_listener(self, listener):
         self._error_listener = listener
 
-    def _error_occurred(self, error):
+    def _error_occurred(self, error, capture_recoverable=False):
+        """
+        Report an error to the listener and stop.
+
+        capture_recoverable marks failures caused by the capture source
+        itself being unavailable (device not open, window not found), which
+        a caller may choose to retry. Everything else - LiveSplit not
+        connected, a bad route, an unloadable model, changed capture
+        dimensions - won't fix itself by retrying and must be surfaced.
+        """
         try:
-            self._error_listener(error)
+            self._error_listener(error, capture_recoverable)
         except AttributeError:
             pass
 

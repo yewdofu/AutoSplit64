@@ -256,7 +256,7 @@ class CaptureEditor(QtWidgets.QDialog):
     def _copy_reset_templates(self, profile_id, source_paths):
         keys = ("reset_frame_one", "reset_frame_two")
         names = ("reset_one.jpg", "reset_two.jpg")
-        destination_dir = resource_utils.base_path(os.path.join("templates", "profiles", profile_id))
+        destination_dir = resource_utils.user_data_path(os.path.join("templates", "profiles", profile_id))
 
         for key, name, source_path in zip(keys, names, source_paths):
             if source_path == config.get_default("advanced", key):
@@ -311,30 +311,59 @@ class CaptureEditor(QtWidgets.QDialog):
         config.set_active_capture_profile(profile_id, self._draft)
         self._load_active_profile()
 
-    def _store_active_profile(self):
+    def _widget_state(self):
+        """
+        Collect the current widget values into a plain dict, with no config
+        access - this is the only place UI values are read, and it can be
+        exercised without a config object or a running QApplication event
+        loop by constructing/mutating a stand-in object with the same
+        attributes.
+        """
+        state = {
+            "capture_source": CAPTURE_SOURCE_DEVICE if self._is_device_mode() else CAPTURE_SOURCE_WINDOW,
+        }
         try:
-            config.set_key("game", "game_region", self.game_region_panel.get_data(), self._draft)
+            state["game_region"] = self.game_region_panel.get_data()
         except (TypeError, ValueError):
             pass
-
-        config.set_key(
-            "game", "capture_source",
-            CAPTURE_SOURCE_DEVICE if self._is_device_mode() else CAPTURE_SOURCE_WINDOW,
-            self._draft
-        )
         if self._preview_size:
-            config.set_key("game", "capture_size", list(self._preview_size), self._draft)
+            state["capture_size"] = list(self._preview_size)
 
         if self._is_device_mode():
             device_index = self.device_combo.currentData()
             if device_index is not None:
-                config.set_key("game", "device_index", device_index, self._draft)
-                config.set_key("game", "device_name", self.device_combo.currentText(), self._draft)
+                state["device_index"] = device_index
+                state["device_name"] = self.device_combo.currentText()
             resolution = self.resolution_combo.currentData()
             if resolution:
-                config.set_key("game", "device_resolution", list(resolution), self._draft)
+                state["device_resolution"] = list(resolution)
         elif self.process_combo.currentIndex() >= 0:
-            config.set_key("game", "process_name", self.process_combo.currentText(), self._draft)
+            state["process_name"] = self.process_combo.currentText()
+
+        return state
+
+    def _store_active_profile(self):
+        for key, value in self._widget_state().items():
+            config.set_key("game", key, value, self._draft)
+
+    def _find_resolution_index(self, resolution):
+        """
+        Index of the resolution_combo entry matching (width, height), or -1.
+
+        QComboBox.findData() can't be used here: for Python-object userData
+        (these entries hold tuples) PyQt5 compares by identity, not value, so
+        an equal-but-distinct tuple - which is what config always gives us,
+        since it's rebuilt from JSON - never matches.
+        """
+        if not resolution:
+            return -1
+
+        target = tuple(resolution)
+        for index in range(self.resolution_combo.count()):
+            data = self.resolution_combo.itemData(index)
+            if data is not None and tuple(data) == target:
+                return index
+        return -1
 
     def _load_active_profile(self):
         self._loading = True
@@ -343,7 +372,7 @@ class CaptureEditor(QtWidgets.QDialog):
         self._preview_size = tuple(config.get("game", "capture_size", self._draft))
 
         resolution = tuple(config.get("game", "device_resolution", self._draft))
-        resolution_index = self.resolution_combo.findData(resolution)
+        resolution_index = self._find_resolution_index(resolution)
         if resolution_index >= 0:
             self.resolution_combo.setCurrentIndex(resolution_index)
 
@@ -440,6 +469,39 @@ class CaptureEditor(QtWidgets.QDialog):
         self._load_active_profile()
         super().show()
 
+    def _measure_capture_size(self):
+        """
+        Actually open the selected capture source to read its real frame
+        size. Used only at Apply time - the profile's normal capture_size
+        (used everywhere else) tracks the last previewed frame instead.
+        """
+        if self._is_device_mode():
+            device_data = self.device_combo.currentData()
+            if device_data is None:
+                return None
+            cap = None
+            try:
+                cap = open_video_device(device_data, self.resolution_combo.currentData())
+                if cap.isOpened():
+                    ret, frame = cap.read()
+                    if ret:
+                        h, w = frame.shape[:2]
+                    else:
+                        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    return [w, h]
+            except Exception:
+                pass
+            finally:
+                if cap is not None:
+                    cap.release()
+            return None
+        else:
+            try:
+                return capture_window.get_capture_size(self.process_combo.currentData())
+            except Exception:
+                return None
+
     def apply_clicked(self):
         if not self._is_minimum_size():
             if self.display_warning("The selected region is below the game's native resolution (320, 240). You may experience sub-optimal performance."):
@@ -447,39 +509,9 @@ class CaptureEditor(QtWidgets.QDialog):
 
         self._store_active_profile()
 
-        if self._is_device_mode():
-            device_data = self.device_combo.currentData()
-            if device_data is not None:
-                resolution = self.resolution_combo.currentData()
-                config.set_key("game", "device_index", device_data, self._draft)
-                config.set_key("game", "device_name", self.device_combo.currentText(), self._draft)
-                config.set_key("game", "capture_source", CAPTURE_SOURCE_DEVICE, self._draft)
-                config.set_key("game", "device_resolution", list(resolution), self._draft)
-                cap = None
-                try:
-                    cap = open_video_device(device_data, resolution)
-                    if cap.isOpened():
-                        ret, frame = cap.read()
-                        if ret:
-                            h, w = frame.shape[:2]
-                        else:
-                            w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                            h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                        config.set_key("game", "capture_size", [w, h], self._draft)
-                except Exception:
-                    pass
-                finally:
-                    if cap is not None:
-                        cap.release()
-        else:
-            config.set_key("game", "process_name", self.process_combo.currentText(), self._draft)
-            config.set_key("game", "capture_source", CAPTURE_SOURCE_WINDOW, self._draft)
-            try:
-                config.set_key(
-                    "game", "capture_size", capture_window.get_capture_size(self.process_combo.currentData()), self._draft
-                )
-            except Exception:
-                pass
+        measured_size = self._measure_capture_size()
+        if measured_size is not None:
+            config.set_key("game", "capture_size", measured_size, self._draft)
 
         try:
             self._apply_pending_template_copies()

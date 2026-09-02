@@ -3,7 +3,7 @@ import json
 import os
 import uuid
 
-from as64core.resource_utils import resource_path, base_path
+from as64core.resource_utils import resource_path, user_data_path
 
 
 _config = {}
@@ -15,27 +15,26 @@ _CONFIG_FILE_NAME = "config.json"
 _LEGACY_CONFIG_FILE_NAME = "config.ini"
 _DEFAULTS_FILE_NAME = "defaults.json"
 _DEFAULT_PROFILE_ID = "default"
+_PROFILE_NAME_FIELD = "name"
 
-_CAPTURE_PROFILE_KEYS = {
-    "game": {
-        "override_version", "version", "process_name", "capture_source", "device_index", "device_name",
-        "device_resolution", "game_region", "capture_size"
-    },
-    "model": {"path", "width", "height"},
-    "thresholds": {
-        "probability_threshold", "confirmation_threshold", "reset_threshold", "white_threshold", "black_threshold",
-        "xcam_bg_threshold", "xcam_rg_threshold", "xcam_bg_activation", "xcam_rg_activation",
-        "xcam_pixel_threshold"
-    },
-    "split_final_star": {"stage_lower_bound", "stage_upper_bound", "star_lower_bound", "star_upper_bound"},
-    "split_ddd_enter": {"portal_lower_bound", "portal_upper_bound", "hat_lower_bound", "hat_upper_bound"},
-    "split_xcam": {"lower_bound", "upper_bound"},
-    "advanced": {"reset_frame_one", "reset_frame_two"}
-}
+
+def _profile_schema():
+    """
+    {section: {key, ...}} for every capture-profile-scoped setting, derived
+    from the default profile in defaults.json - the single place that
+    defines which keys belong to a capture profile.
+    """
+    if not _defaults:
+        load_defaults()
+    return {
+        section: set(keys)
+        for section, keys in _default_profile().items()
+        if section != _PROFILE_NAME_FIELD
+    }
 
 
 def _is_profile_key(section, key):
-    return key in _CAPTURE_PROFILE_KEYS.get(section, set())
+    return key in _profile_schema().get(section, set())
 
 
 def _active_profile(data):
@@ -51,7 +50,7 @@ def _migrate_legacy(data):
     migrated = copy.deepcopy(data)
     profile = copy.deepcopy(_default_profile())
 
-    for section, keys in _CAPTURE_PROFILE_KEYS.items():
+    for section, keys in _profile_schema().items():
         legacy_section = migrated.get(section, {})
         profile_section = profile.setdefault(section, {})
         for key in keys:
@@ -208,8 +207,8 @@ def load_config():
     global _config
     load_defaults()
 
-    config_path = base_path(_CONFIG_FILE_NAME)
-    legacy_path = base_path(_LEGACY_CONFIG_FILE_NAME)
+    config_path = user_data_path(_CONFIG_FILE_NAME)
+    legacy_path = user_data_path(_LEGACY_CONFIG_FILE_NAME)
     migrated = False
 
     try:
@@ -236,7 +235,7 @@ def load_defaults():
 
 
 def save_config():
-    config_path = base_path(_CONFIG_FILE_NAME)
+    config_path = user_data_path(_CONFIG_FILE_NAME)
     temporary_path = config_path + ".tmp"
     with open(temporary_path, "w", encoding="utf-8") as file:
         json.dump(_config, file, indent=4)

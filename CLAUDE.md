@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AutoSplit64 is a Windows desktop application for automating LiveSplit during Super Mario 64 speedruns. It captures the game screen in real time, analyzes game state via an ONNX model, and sends split commands to LiveSplit.
 
-- Version: 0.3.3
+- Version: 0.4.0
 - GUI: PyQt5
 - Python: 3.11+
 - Package manager: uv
@@ -31,7 +31,7 @@ rsrc -manifest app.manifest -o rsrc.syso
 go build -ldflags="-H windowsgui" -o ..\dist\AutoSplit64\Updater.exe .
 
 # モデル変換（HDF5 → ONNX）
-uv run --group dev python tools/convert_to_onnx.py
+uv run --group convert python tools/convert_to_onnx.py
 ```
 
 There are no configured test or lint commands.
@@ -109,4 +109,4 @@ Output: `dist/AutoSplit64/AutoSplit64.exe` (onedir形式, ~270MB)
 
 - **Thread-based processing**: `as64core/base.py` runs as a `threading.Thread`; GUI communicates via PyQt signals
 - **ProcessorSwitch**: State machine that dispatches to registered `Process` objects based on split type
-- **resource_path()**: All asset paths go through `as64core.resource_utils.resource_path()`, which resolves against `sys._MEIPASS` when frozen by PyInstaller and `os.path.abspath(".")` otherwise
+- **Resource vs. user-data paths**: `as64core/resource_utils.py` exposes two APIs — `resource_path()` for bundled, read-only assets (resolves against `sys._MEIPASS` when frozen, the project root otherwise) and `user_data_path()` for writable data like `config.json` and routes (resolves next to the executable when frozen, the project root otherwise)

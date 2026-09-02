@@ -10,14 +10,30 @@ from as64gui.app import App
 import as64core
 from as64core import config
 from as64core.game_capture import open_video_device
-from as64core.processing import register_process, insert_global_hook, insert_global_processor_hook, ProcessorGenerator
+from as64core.processing import register_process, insert_global_hook, ProcessorGenerator
+from as64core.resource_utils import resource_path
 from as64core.route_loader import load
 from as64core.updater import Updater
 
-from as64processes.standard import *
-from as64processes.xcam import *
-from as64processes.ddd import *
-from as64processes.final import *
+from as64processes.standard import (
+    ProcessWait,
+    ProcessRunStart,
+    ProcessRunStartUpSegment,
+    ProcessStarCount,
+    ProcessFadein,
+    ProcessFadeout,
+    ProcessFadeoutNoStar,
+    ProcessFadeoutResetOnly,
+    ProcessPostFadeout,
+    ProcessFlashCheck,
+    ProcessReset,
+    ProcessResetNoStart,
+    ProcessDummy,
+    ProcessFileSelectSplit,
+)
+from as64processes.xcam import ProcessXCam, ProcessXCamStartUpSegment
+from as64processes.ddd import ProcessFindDDDPortal, ProcessDDDEntry, ProcessDDDEntryX
+from as64processes.final import ProcessFinalStageEntry, ProcessFinalStarSpawn, ProcessFinalStarGrab
 
 
 class AutoSplit64(QtCore.QObject):
@@ -165,7 +181,13 @@ class AutoSplit64(QtCore.QObject):
         with self._lifecycle_lock:
             self._start_requested = False
             self._start_generation += 1
-        as64core.stop()
+            base = getattr(as64core, "_base", None)
+
+        # Releasing a capture device or closing a LiveSplit socket can block.
+        # Keep that work off the Qt GUI thread, and bind the exact Base being
+        # stopped so a delayed worker can never stop a newer generation.
+        if base is not None:
+            Thread(target=base.stop, daemon=True).start()
 
     def on_started(self):
         self.app.set_started(True)
@@ -173,8 +195,12 @@ class AutoSplit64(QtCore.QObject):
     def on_update(self, index, star_count, split_star):
         self.app.update_display(index, star_count, split_star)
 
-    def on_error(self, error):
-        if config.get("game", "capture_source") == "device" and not self._device_retrying:
+    def on_error(self, error, capture_recoverable=False):
+        # Only wait-and-retry when the capture device itself is what failed.
+        # Anything else (LiveSplit not connected, bad route, unloadable
+        # model) would just fail again on the retry, looping forever without
+        # ever showing the user the error.
+        if capture_recoverable and config.get("game", "capture_source") == "device" and not self._device_retrying:
             self._device_retrying = True
             self.capture_waiting.emit(True)
             Thread(target=self._retry_device_capture, daemon=True).start()

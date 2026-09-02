@@ -9,7 +9,8 @@ import requests
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from as64core import route_loader, config
-from as64core.resource_utils import base_path, resource_path, absolute_path, rel_to_abs
+from as64core.route import Route
+from as64core.resource_utils import user_data_path, resource_path, rel_to_abs
 from . import constants
 from .widgets import PictureButton, StateButton, StarCountDisplay, SplitListWidget
 from .dialogs import AboutDialog, CaptureEditor, SettingsDialog, RouteEditor, ResetGeneratorDialog, UpdateDialog, OutputDialog
@@ -72,11 +73,28 @@ class App(QtWidgets.QMainWindow):
             "output_dialog": OutputDialog(self)
         }
 
+        # Nothing is listed from here - it stays only as where the open and
+        # save dialogs start.
+        os.makedirs(user_data_path(constants.ROUTES_DIR), exist_ok=True)
+
         self._routes = {}
-        self._load_route_dir()
+        self._load_routes()
 
         self.initialize()
         self.show()
+
+    def _capture_in_use(self):
+        """
+        True while the core is running and holding the capture source.
+        Dialogs that open their own capture of the same window/device
+        (Capture Setup, Reset Template Generator) must not be opened then.
+        """
+        return self.start_btn.get_state() != "start"
+
+    def _set_and_save(self, section, key, value):
+        """Single path every config change in this class goes through to persist immediately."""
+        config.set_key(section, key, value)
+        config.save_config()
 
     def set_always_on_top(self, on_top):
         if on_top:
@@ -188,31 +206,33 @@ class App(QtWidgets.QMainWindow):
             self.start_btn.setEnabled(True)
         self.start_btn.repaint()
 
-    def open_route(self):
-        self._reset()
-
-        if config.get("route", "path") == "":
-            return
-
+    @staticmethod
+    def _load_and_validate_route(route_path):
+        """
+        Load and validate a route file with no side effects - no config
+        writes, no display changes, no core restart. Testable directly with
+        just a file path.
+        Returns (route, error_message, route_missing). route_missing is True
+        only when the file itself couldn't be loaded (as opposed to loading
+        but failing validation) - callers only re-scan the routes directory
+        and clear the configured path in that case, not on a validation error.
+        """
         #try:
-        route = route_loader.load(config.get("route", "path"))
+        route = route_loader.load(route_path)
         # except KeyError:
-        #     self.display_error_message("Key Error", "Route Error")
-        #     return False
+        #     return None, "Key Error", True
 
         if not route:
-            self.display_error_message("Could not load route", "Route Error")
-            self._load_route_dir()
-            config.set_key("route", "path", "")
-            config.save_config()
-            return False
+            return None, "Could not load route", True
 
         error = route_loader.validate_route(route)
-
         if error:
-            self.display_error_message(error, "Route Error")
-            return False
+            return None, error, False
 
+        return route, None, False
+
+    def _display_route(self, route):
+        """Apply an already-validated route to the display widgets."""
         self.route = route
 
         self.split_list.clear()
@@ -232,15 +252,53 @@ class App(QtWidgets.QMainWindow):
 
         self.split_list.repaint()
 
+    def open_route(self):
+        """Load and display whichever route is currently configured (startup, or after RouteEditor saves)."""
+        self._reset()
+
+        route_path = config.get("route", "path")
+        if route_path == "":
+            return None
+
+        route, error, route_missing = self._load_and_validate_route(route_path)
+
+        if error:
+            self.display_error_message(error, "Route Error")
+            if route_missing:
+                self._load_routes()
+                self._set_and_save("route", "path", "")
+            return False
+
+        self._display_route(route)
+
         return True
 
     def open_route_browser(self):
         """ Show native file dialog to select a .route file for use. """
-        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Open Route", base_path("routes"),
+        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Open Route", user_data_path("routes"),
                                                              "AS64 Route Files (*.as64)")
 
         if file_path:
             self._save_open_route(file_path)
+
+    def reset_route_history(self):
+        """
+        Empty the history, clearing the list outright. The route currently
+        open stays open and configured; it is simply no longer listed. Asks
+        first, since nothing restores the history.
+        """
+        confirmation = QtWidgets.QMessageBox.question(
+            self,
+            "Reset History",
+            "Forget every route in the list?"
+            "\n\nThe route currently open stays open, and no route files are deleted.",
+        )
+
+        if confirmation != QtWidgets.QMessageBox.Yes:
+            return
+
+        self._set_and_save("route", "recent", [])
+        self._load_routes()
 
     def update_found(self, info):
         # TODO: RENAME FUNCTION
@@ -270,18 +328,17 @@ class App(QtWidgets.QMainWindow):
         for category in sorted(self._routes, key=lambda text:[int(c) if c.isdigit() else c for c in re.split(r'(\d+)', text)]):
             if len(self._routes[category]) == 1 or category == "":
                 for route in self._routes[category]:
-                    route_menu.addAction(route[0])
-                    route_actions[route[0]] = partial(self._save_open_route, route[1])
+                    route_actions[route_menu.addAction(route[0])] = partial(self._save_open_route, route[1])
             else:
                 category_menus[category] = QtWidgets.QMenu(str(category))
                 route_menu.addMenu(category_menus[category])
 
                 for route in self._routes[category]:
-                    category_menus[category].addAction(route[0])
-                    route_actions[route[0]] = partial(self._save_open_route, route[1])
+                    route_actions[category_menus[category].addAction(route[0])] = partial(self._save_open_route, route[1])
 
         route_menu.addSeparator()
         file_action = route_menu.addAction("From File")
+        reset_history_action = route_menu.addAction("Reset History")
 
         # Actions
         edit_route = context_menu.addAction("Edit Route")
@@ -309,34 +366,42 @@ class App(QtWidgets.QMainWindow):
         # Connections
         if action == srl_action:
             checked = srl_action.isChecked()
-            config.set_key("general", "srl_mode", checked)
-            config.save_config()
+            self._set_and_save("general", "srl_mode", checked)
         elif action == edit_route:
             self.dialogs["route_editor"].show()
         elif action == file_action:
             self.open_route_browser()
+        elif action == reset_history_action:
+            self.reset_route_history()
         elif action == cords_action:
-            self.dialogs["capture_editor"].show()
-            try:
-                self.dialogs["output_dialog"].close()
-            except AttributeError:
-                pass
+            # Capture Setup opens its own capture of the same window/device;
+            # doing that while the core holds it crashes inside OpenCV.
+            if self._capture_in_use():
+                self.display_error_message(
+                    "Stop autosplit before opening Capture Setup.",
+                    "Capture In Use"
+                )
+            else:
+                self.dialogs["capture_editor"].show()
+                try:
+                    self.dialogs["output_dialog"].close()
+                except AttributeError:
+                    pass
         elif action == advanced_action:
             self.dialogs["settings_dialog"].show()
         elif action == reset_gen_action:
-            if self.start_btn.get_state() == "start":
-                self.dialogs["reset_dialog"].show()
-            else:
+            if self._capture_in_use():
                 self.display_error_message(
                     "Stop autosplit before generating reset templates.",
                     "Capture In Use"
                 )
+            else:
+                self.dialogs["reset_dialog"].show()
         elif action == output_action:
             self.dialogs["output_dialog"].show()
         elif action == on_top_action:
             checked = on_top_action.isChecked()
-            config.set_key("general", "on_top", checked)
-            config.save_config()
+            self._set_and_save("general", "on_top", checked)
             self.set_always_on_top(config.get("general", "on_top"))
         elif action == about_action:
             self.dialogs["about_dialog"].show()
@@ -346,8 +411,8 @@ class App(QtWidgets.QMainWindow):
             self.close()
         else:
             try:
-                route_actions[action.text()]()
-            except (KeyError, AttributeError):
+                route_actions[action]()
+            except KeyError:
                 pass
 
     def mousePressEvent(self, event):
@@ -386,44 +451,84 @@ class App(QtWidgets.QMainWindow):
         msg.setText(message)
         msg.show()
 
-    def _load_route_dir(self):
+    def _load_routes(self):
+        """
+        Collect every route to offer in the menu, grouped by category - the
+        routes opened so far that are still on disk. Where a route file
+        happens to live is not something the menu should expose.
+        """
         self._routes = {}
 
-        routes_dir = base_path("routes")
-        if not os.path.isdir(routes_dir):
-            os.makedirs(routes_dir)
-            return
+        for route_path in self._route_paths():
+            route = route_loader.load(route_path)
 
-        for file in os.listdir(routes_dir):
-            if file.endswith(".as64"):
-                route_path = os.path.join(routes_dir, file)
-                route = route_loader.load(route_path)
+            if isinstance(route, Route):
+                self._routes.setdefault(route.category, []).append([route.title, route_path])
 
-                if route:
-                    category = route.category
+    @staticmethod
+    def _route_paths():
+        """
+        Paths of every route to list - the routes opened so far, wherever
+        they live. Deleted files are dropped rather than listed as dead
+        entries, and a route reachable through two spellings of the same
+        path is listed once.
+        """
+        paths = []
+        listed = set()
 
-                    try:
-                        self._routes[category].append([route.title, route_path])
-                    except KeyError:
-                        self._routes[category] = []
-                        self._routes[category].append([route.title, route_path])
+        for path in config.get("route", "recent"):
+            key = os.path.normcase(os.path.normpath(path))
+
+            if key in listed or not os.path.isfile(path):
+                continue
+
+            listed.add(key)
+            paths.append(path)
+
+        return paths
 
     def _on_route_update(self):
-        self._load_route_dir()
+        self._load_routes()
         self.open_route()
 
     def _save_open_route(self, file_path):
-        prev_route = config.get("route", "path")
-        config.set_key("route", "path", file_path)
-        config.save_config()
-        success = self.open_route()
+        """
+        Switch the active route to file_path. Validates first - config, the
+        displayed route, and the core restart are only touched once, and
+        only on success, so an invalid pick leaves everything as it was.
+        """
+        route, error, _ = self._load_and_validate_route(file_path)
 
-        if success:
+        if error:
+            self.display_error_message(error, "Route Error")
             return
-        else:
-            config.set_key("route", "path", prev_route)
-            config.save_config()
-            self.open_route()
+
+        self._set_and_save("route", "path", file_path)
+        self._remember_recent_route(file_path)
+        # The route just opened has to reach the menu now, not on next launch.
+        self._load_routes()
+        self._display_route(route)
+        self._reset()
+
+    def _remember_recent_route(self, file_path):
+        """Persist file_path at the front of the recently opened route history."""
+        self._set_and_save("route", "recent", self._updated_recent_routes(config.get("route", "recent"), file_path))
+
+    @staticmethod
+    def _updated_recent_routes(recent, file_path, limit=constants.MAX_RECENT_ROUTES):
+        """
+        Recently opened route paths with file_path moved to the front. Pure
+        function so the history rules (newest first, no duplicates, capped)
+        can be tested without touching config or the GUI.
+        """
+        opened = os.path.normcase(os.path.normpath(file_path))
+        updated = [file_path]
+
+        for path in recent:
+            if os.path.normcase(os.path.normpath(path)) != opened:
+                updated.append(path)
+
+        return updated[:limit]
 
     def _reset(self):
         if self.start_btn.get_state() == "stop":

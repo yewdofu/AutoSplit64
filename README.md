@@ -41,7 +41,7 @@ Virtual Console is not supported.
 
 ## Release
 
-[Version 0.2.5](https://github.com/synozure/AutoSplit64/releases)
+[Latest release](https://github.com/yewdofu/AutoSplit64/releases/latest)
 
 ## Features
 
@@ -53,6 +53,8 @@ Virtual Console is not supported.
 - Death Detection
 - Create custom routes with graphical interface
 - Automatically convert LiveSplit .lss files to AutoSplit 64 routes
+- Capture profiles for switching between capture setups
+- Route menu that remembers the routes you open, wherever they are kept
 - SRL Mode - Prevents AutoSplit64 from detecting console resets to pass control to SRL
 
 ## Quick Setup
@@ -101,6 +103,8 @@ If you are using a correctly configured version of AmaRecTV as shown (with windo
 ### Routes
 
 We must let AutoSplit 64 know when we want splits to occur. This can be done by using the Route Editor (`Right-Click -> Edit Route`) to generate route files.
+
+Routes you have opened are listed under `Right-Click -> Open Route`, grouped by the category set in the Route Editor. Open one for the first time with `Open Route -> From File`; it stays in the list afterwards no matter where the file is kept. The `routes` folder beside the executable is simply where the open and save dialogs start — putting a file there does not list it until you have opened it. `Open Route -> Reset History` empties the list without deleting any route files.
 
 A regular split will trigger when the specified number of stars have been collected, and a set amount of fadeouts or fadeins have occurred after the star count was reached, or the last split occurred.
 
@@ -152,7 +156,7 @@ Output: `dist/AutoSplit64/AutoSplit64.exe`
 **Convert model (only needed if you have a new `.hdf5` model)**
 
 ```bash
-uv run --group dev python tools/convert_to_onnx.py
+uv run --group convert python tools/convert_to_onnx.py
 ```
 
 ## Credit
