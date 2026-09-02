@@ -66,6 +66,11 @@ jobs:
       - name: Create zip
         run: Compress-Archive -Path dist\AutoSplit64\* -DestinationPath "AutoSplit64-${{ github.ref_name }}.zip"
 
+      # 公開前の最後のゲート。更新を実行するのは前リリースに同梱された
+      # updater なので、ここでの取りこぼしは後続リリースでは直せない。
+      - name: Verify release zip
+        run: python tools/verify_release_zip.py "AutoSplit64-${{ github.ref_name }}.zip"
+
       - name: Create GitHub Release
         run: |
           gh release delete "${{ github.ref_name }}" --yes 2>$null; true
