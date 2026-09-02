@@ -19,8 +19,11 @@ class Updater(object):
         except AttributeError:
             pass
 
+        # AS64Updater.exe は AutoSplit64.exe と同じディレクトリに置かれる。
+        # WinExec は呼び出し元プロセスの exe ディレクトリを最初に探索するため、
+        # カレントディレクトリがどこであっても解決できる。
         try:
-            win32api.WinExec(r'Updater.exe')
+            win32api.WinExec(r'AS64Updater.exe')
         except:
             pass
 
