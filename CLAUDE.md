@@ -23,18 +23,24 @@ uv run AutoSplit64.py
 # exe化
 uv run --group dev pyinstaller AutoSplit64.spec
 
-# Updater.exe ビルド（Go製、updater/ ディレクトリで実行）
+# AS64Updater.exe ビルド（Go製、updater/ ディレクトリで実行）
 cd updater
 go mod download
 go install github.com/akavel/rsrc@latest
 rsrc -manifest app.manifest -o rsrc.syso
-go build -ldflags="-H windowsgui" -o ..\dist\AutoSplit64\Updater.exe .
+go build -ldflags="-H windowsgui" -o ..\dist\AutoSplit64\AS64Updater.exe .
 
 # モデル変換（HDF5 → ONNX）
 uv run --group convert python tools/convert_to_onnx.py
+
+# テスト（CIでもPRごとに実行される）
+uv run --no-sync pytest -q
+
+# リリースzipの検証（zip作成後。CIでも公開直前に実行される）
+python tools/verify_release_zip.py AutoSplit64-<version>.zip
 ```
 
-There are no configured test or lint commands.
+lintは設定されていない。
 
 ## Architecture
 
@@ -88,7 +94,7 @@ AutoSplit64.py          # QApplication entry point
 
 Output: `dist/AutoSplit64/AutoSplit64.exe` (onedir形式, ~270MB)
 
-`Updater.exe` は Go で別途ビルドし、`dist/AutoSplit64/` に配置する（上記コマンド参照）。CI（GitHub Actions）では自動でビルドされる。
+`AS64Updater.exe` は Go で別途ビルドし、`dist/AutoSplit64/` に配置する（上記コマンド参照）。CI（GitHub Actions）では自動でビルドされる。
 
 ### Updater
 
@@ -97,6 +103,8 @@ Output: `dist/AutoSplit64/AutoSplit64.exe` (onedir形式, ~270MB)
 - `updater/app.manifest` — `requestedExecutionLevel asInvoker` でUAC自動昇格を防止（重要）
 - `rsrc.syso` はビルド時に `rsrc` ツールで生成（gitignoreに含まれる）
 - バージョンチェックは `as64updater/update_core.py` (QtCore.QThread) で実行
+- **実行ファイル名は `AS64Updater.exe`（`Updater.exe` から改名済み、#48）**。Windowsでは実行中のexeを書き込みオープンできず、リリースzipの最終エントリだった `Updater.exe` 自身の展開に失敗して更新が中断していた。改名によりzipから同名エントリが消えるため、配布済みの旧 `Updater.exe` でも展開が最後まで通る。改名前の `Updater.exe` は旧インストールに残るが、参照されないので無害
+- **名前の整合性**: updaterの名前は `as64core/updater.py`（起動する側）と `.github/workflows/release.yml`（ビルドする側）の2箇所、アプリ本体の名前は `AutoSplit64.spec`（生成する側）と `updater/main.go`（再起動する側）の2箇所にある。`tests/test_issue48_updater_binary_name.py` が相互に固定しており、`tools/verify_release_zip.py` がリリースzipの実物を同じ名前で検証する（release.ymlの公開直前ステップ）
 
 ### Model
 
