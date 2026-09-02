@@ -73,8 +73,8 @@ class App(QtWidgets.QMainWindow):
             "output_dialog": OutputDialog(self)
         }
 
-        # The conventional place to keep routes: listed in the menu, and where
-        # the open/save dialogs start.
+        # Nothing is listed from here - it stays only as where the open and
+        # save dialogs start.
         os.makedirs(user_data_path(constants.ROUTES_DIR), exist_ok=True)
 
         self._routes = {}
@@ -283,17 +283,15 @@ class App(QtWidgets.QMainWindow):
 
     def reset_route_history(self):
         """
-        Empty the history, taking the listing back to the routes folder
-        alone. The route currently open is listed afterwards only if it
-        lives there; it stays open and configured either way. Asks first,
-        since nothing restores the history.
+        Empty the history, clearing the list outright. The route currently
+        open stays open and configured; it is simply no longer listed. Asks
+        first, since nothing restores the history.
         """
         confirmation = QtWidgets.QMessageBox.question(
             self,
             "Reset History",
-            "Forget the routes opened from outside the routes folder?"
-            "\n\nThe list goes back to the routes folder alone. The route currently open stays open,"
-            " and no route files are deleted.",
+            "Forget every route in the list?"
+            "\n\nThe route currently open stays open, and no route files are deleted.",
         )
 
         if confirmation != QtWidgets.QMessageBox.Yes:
@@ -455,10 +453,9 @@ class App(QtWidgets.QMainWindow):
 
     def _load_routes(self):
         """
-        Collect every route to offer in the menu, grouped by category: the
-        .as64 files in the routes directory plus any route opened from
-        elsewhere that is still on disk. Where a route file happens to live
-        is not something the menu should expose.
+        Collect every route to offer in the menu, grouped by category - the
+        routes opened so far that are still on disk. Where a route file
+        happens to live is not something the menu should expose.
         """
         self._routes = {}
 
@@ -471,18 +468,13 @@ class App(QtWidgets.QMainWindow):
     @staticmethod
     def _route_paths():
         """
-        Paths of every route to list: the .as64 files kept in the routes
-        directory, then any route opened from elsewhere. Deleted files are
-        dropped rather than listed as dead entries, and a route reachable
-        through two spellings of the same path is listed once.
+        Paths of every route to list - the routes opened so far, wherever
+        they live. Deleted files are dropped rather than listed as dead
+        entries, and a route reachable through two spellings of the same
+        path is listed once.
         """
-        routes_dir = user_data_path(constants.ROUTES_DIR)
         paths = []
-
-        if os.path.isdir(routes_dir):
-            paths = [os.path.join(routes_dir, file) for file in os.listdir(routes_dir) if file.endswith(".as64")]
-
-        listed = {os.path.normcase(os.path.normpath(path)) for path in paths}
+        listed = set()
 
         for path in config.get("route", "recent"):
             key = os.path.normcase(os.path.normpath(path))

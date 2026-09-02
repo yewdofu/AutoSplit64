@@ -101,7 +101,6 @@ def test_opening_a_route_rebuilds_the_menu_listing(tmp_path, monkeypatch):
     Recording the path is not enough - without a rebuild the route only
     reaches the menu on the next launch, which is what opening it is for.
     """
-    (tmp_path / "routes").mkdir()
     route = _write_route(tmp_path / "external.as64", "External")
     recorded = []
 
@@ -114,7 +113,6 @@ def test_opening_a_route_rebuilds_the_menu_listing(tmp_path, monkeypatch):
     fake._route_paths = App._route_paths
     fake._load_routes = lambda: App._load_routes(fake)
     _history([route], monkeypatch)
-    monkeypatch.setattr("as64gui.app.user_data_path", lambda *a: str(tmp_path / "routes"))
 
     App._save_open_route(fake, route)
 
@@ -124,91 +122,57 @@ def test_opening_a_route_rebuilds_the_menu_listing(tmp_path, monkeypatch):
 
 # --- _route_paths: which files get listed ---------------------------------------
 
-def _routes_dir(tmp_path, recent, monkeypatch):
-    """A routes directory at tmp_path/routes, with config's history stubbed out."""
+def test_opened_routes_are_listed_newest_first(tmp_path, monkeypatch):
+    second = _write_route(tmp_path / "second.as64", "Second")
+    first = _write_route(tmp_path / "first.as64", "First")
+    _history([second, first], monkeypatch)
+
+    assert App._route_paths() == [second, first]
+
+
+def test_routes_directory_is_not_scanned(tmp_path, monkeypatch):
+    """A file sitting in the routes directory is not listed until it is opened."""
     routes_dir = tmp_path / "routes"
     routes_dir.mkdir()
-    _history(recent, monkeypatch)
+    _write_route(routes_dir / "never_opened.as64", "Never Opened")
+    _history([], monkeypatch)
     monkeypatch.setattr("as64gui.app.user_data_path", lambda *a: str(routes_dir))
-    return routes_dir
+
+    assert App._route_paths() == []
 
 
-def test_routes_directory_is_listed_without_being_opened(tmp_path, monkeypatch):
-    routes_dir = _routes_dir(tmp_path, [], monkeypatch)
+def test_route_in_the_routes_directory_is_listed_once_opened(tmp_path, monkeypatch):
+    routes_dir = tmp_path / "routes"
+    routes_dir.mkdir()
     inside = _write_route(routes_dir / "inside.as64", "Inside")
+    _history([inside], monkeypatch)
 
     assert App._route_paths() == [inside]
 
 
-def test_non_route_files_in_the_directory_are_ignored(tmp_path, monkeypatch):
-    routes_dir = _routes_dir(tmp_path, [], monkeypatch)
-    (routes_dir / "notes.txt").write_text("ignore me", encoding="utf-8")
-
-    assert App._route_paths() == []
-
-
-def test_missing_routes_directory_lists_nothing(tmp_path, monkeypatch):
-    _history([], monkeypatch)
-    monkeypatch.setattr("as64gui.app.user_data_path", lambda *a: str(tmp_path / "routes"))
-
-    assert App._route_paths() == []
-
-
-def test_remembered_route_outside_the_directory_is_listed(tmp_path, monkeypatch):
-    _routes_dir(tmp_path, [str(tmp_path / "elsewhere.as64")], monkeypatch)
-    external = _write_route(tmp_path / "elsewhere.as64", "External")
-
-    assert App._route_paths() == [external]
-
-
-def test_directory_routes_come_before_remembered_ones(tmp_path, monkeypatch):
-    routes_dir = _routes_dir(tmp_path, [str(tmp_path / "external.as64")], monkeypatch)
-    external = _write_route(tmp_path / "external.as64", "External")
-    inside = _write_route(routes_dir / "inside.as64", "Inside")
-
-    assert App._route_paths() == [inside, external]
-
-
-def test_remembered_route_inside_the_directory_is_not_listed_twice(tmp_path, monkeypatch):
-    routes_dir = tmp_path / "routes"
-    routes_dir.mkdir()
-    inside = _write_route(routes_dir / "inside.as64", "Inside")
-    _history([os.path.normpath(inside)], monkeypatch)
-    # user_data_path returns forward slashes; the stored path uses os.sep.
-    monkeypatch.setattr("as64gui.app.user_data_path", lambda *a: str(routes_dir).replace("\\", "/"))
-
-    listed = [os.path.normcase(os.path.normpath(path)) for path in App._route_paths()]
-
-    assert listed == [os.path.normcase(os.path.normpath(inside))]
-
-
 def test_deleted_route_is_dropped(tmp_path, monkeypatch):
-    _routes_dir(tmp_path, [str(tmp_path / "deleted.as64")], monkeypatch)
+    _history([str(tmp_path / "deleted.as64")], monkeypatch)
 
     assert App._route_paths() == []
 
 
 def test_same_path_spelled_differently_is_listed_once(tmp_path, monkeypatch):
-    _routes_dir(tmp_path, [], monkeypatch)
     route = _write_route(tmp_path / "route.as64", "Route")
     _history([route, route.replace("\\", "/")], monkeypatch)
 
     assert App._route_paths() == [route]
 
 
-def test_empty_history_and_empty_directory_list_nothing(tmp_path, monkeypatch):
-    _routes_dir(tmp_path, [], monkeypatch)
+def test_empty_history_lists_nothing(monkeypatch):
+    _history([], monkeypatch)
 
     assert App._route_paths() == []
 
 
 # --- _load_routes: grouping by category -----------------------------------------
 
-def _load(tmp_path, monkeypatch, recent):
-    routes_dir = tmp_path / "routes"
-    routes_dir.mkdir(exist_ok=True)
+def _load(monkeypatch, recent):
     _history(recent, monkeypatch)
-    monkeypatch.setattr("as64gui.app.user_data_path", lambda *a: str(routes_dir))
 
     fake = type("F", (), {})()
     fake._route_paths = App._route_paths
@@ -222,7 +186,7 @@ def test_routes_group_by_category_wherever_they_live(tmp_path, monkeypatch):
     inside = _write_route(routes_dir / "inside.as64", "LBLJ", category="16 Star")
     external = _write_route(tmp_path / "external.as64", "16 Star Custom", category="16 Star")
 
-    assert _load(tmp_path, monkeypatch, [external]) == {
+    assert _load(monkeypatch, [inside, external]) == {
         "16 Star": [["LBLJ", inside], ["16 Star Custom", external]]
     }
 
@@ -230,7 +194,7 @@ def test_routes_group_by_category_wherever_they_live(tmp_path, monkeypatch):
 def test_uncategorised_routes_share_the_empty_category(tmp_path, monkeypatch):
     route = _write_route(tmp_path / "route.as64", "Upstairs")
 
-    assert _load(tmp_path, monkeypatch, [route]) == {"": [["Upstairs", route]]}
+    assert _load(monkeypatch, [route]) == {"": [["Upstairs", route]]}
 
 
 def test_unreadable_route_is_skipped(tmp_path, monkeypatch):
@@ -238,14 +202,14 @@ def test_unreadable_route_is_skipped(tmp_path, monkeypatch):
     broken.write_text("{ not valid json", encoding="utf-8")
     good = _write_route(tmp_path / "good.as64", "Good")
 
-    assert _load(tmp_path, monkeypatch, [str(broken), good]) == {"": [["Good", good]]}
+    assert _load(monkeypatch, [str(broken), good]) == {"": [["Good", good]]}
 
 
 def test_json_without_the_route_flag_is_skipped(tmp_path, monkeypatch):
     not_a_route = tmp_path / "settings.as64"
     not_a_route.write_text(json.dumps({"something": "else"}), encoding="utf-8")
 
-    assert _load(tmp_path, monkeypatch, [str(not_a_route)]) == {}
+    assert _load(monkeypatch, [str(not_a_route)]) == {}
 
 
 # --- reset_route_history: back to the routes folder alone ------------------------
@@ -284,10 +248,10 @@ def test_confirming_empties_the_history_and_reloads(monkeypatch):
     assert calls == [("route", "recent", []), "load_routes"]
 
 
-def test_open_route_outside_the_folder_is_not_kept_in_the_listing(monkeypatch):
+def test_the_open_route_is_not_kept_in_the_listing(monkeypatch):
     """
     The route stays open and configured, but a reset takes it off the list
-    like any other route opened from elsewhere.
+    like every other route.
     """
     from PyQt5 import QtWidgets
 
@@ -300,14 +264,14 @@ def test_open_route_outside_the_folder_is_not_kept_in_the_listing(monkeypatch):
     assert not any(call[1] == "path" for call in calls if isinstance(call, tuple))
 
 
-def test_reset_leaves_the_routes_folder_listed(tmp_path, monkeypatch):
-    """After a reset the listing is rebuilt from the routes folder alone."""
+def test_reset_leaves_nothing_listed(tmp_path, monkeypatch):
+    """A reset clears the list outright, the routes directory included."""
     routes_dir = tmp_path / "routes"
     routes_dir.mkdir()
     inside = _write_route(routes_dir / "inside.as64", "Inside")
     outside = _write_route(tmp_path / "outside.as64", "Outside")
 
-    assert _load(tmp_path, monkeypatch, [outside]) == {
+    assert _load(monkeypatch, [inside, outside]) == {
         "": [["Inside", inside], ["Outside", outside]]
     }
-    assert _load(tmp_path, monkeypatch, []) == {"": [["Inside", inside]]}
+    assert _load(monkeypatch, []) == {}
