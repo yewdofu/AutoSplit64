@@ -85,11 +85,20 @@ func main() {
 	u.Run()
 }
 
+// setStatus and setProgress are no-ops when there is no window, so the update
+// logic can be driven directly from tests.
+
 func (u *UpdaterWindow) setStatus(text string) {
+	if u.MainWindow == nil {
+		return
+	}
 	u.Synchronize(func() { u.statusLabel.SetText(text) })
 }
 
 func (u *UpdaterWindow) setProgress(pct int) {
+	if u.MainWindow == nil {
+		return
+	}
 	u.Synchronize(func() { u.progressBar.SetValue(pct) })
 }
 
