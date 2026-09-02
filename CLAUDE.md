@@ -32,10 +32,8 @@ go build -ldflags="-H windowsgui" -o ..\dist\AutoSplit64\AS64Updater.exe .
 
 # モデル変換（HDF5 → ONNX）
 uv run --group convert python tools/convert_to_onnx.py
-```
 
-```bash
-# テスト（pytest。CIでもPRごとに実行される）
+# テスト（CIでもPRごとに実行される）
 uv run --no-sync pytest -q
 
 # リリースzipの検証（zip作成後。CIでも公開直前に実行される）
