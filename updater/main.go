@@ -17,8 +17,9 @@ import (
 )
 
 const (
-	apiURL    = "https://api.github.com/repos/yewdofu/AutoSplit64/releases/latest"
-	patchFile = "patch.zip"
+	apiURL        = "https://api.github.com/repos/yewdofu/AutoSplit64/releases/latest"
+	patchFileName = "patch.zip"
+	appExeName    = "AutoSplit64.exe"
 )
 
 type Release struct {
@@ -38,6 +39,10 @@ type UpdaterWindow struct {
 	progressBar *walk.ProgressBar
 	abortBtn    *walk.PushButton
 	aborted     bool
+
+	selfExe   string // absolute path of this running executable
+	baseDir   string // install directory (the directory holding this executable)
+	patchPath string // downloaded release zip, inside baseDir
 }
 
 func main() {
@@ -89,6 +94,16 @@ func (u *UpdaterWindow) setProgress(pct int) {
 }
 
 func (u *UpdaterWindow) run() {
+	if err := u.resolvePaths(); err != nil {
+		u.setStatus(fmt.Sprintf("Error: %v", err))
+		return
+	}
+
+	// Clean up the ".old" residue left by a previous self-replacement. It is
+	// usually gone by now, but removal can fail while the old image is still
+	// mapped into memory; that error is ignored.
+	_ = os.Remove(u.selfExe + ".old")
+
 	release, err := fetchRelease()
 	if err != nil {
 		u.setStatus(fmt.Sprintf("Error: %v", err))
@@ -114,11 +129,11 @@ func (u *UpdaterWindow) run() {
 		if !u.aborted {
 			u.setStatus(fmt.Sprintf("Download error: %v", err))
 		}
-		os.Remove(patchFile)
+		os.Remove(u.patchPath)
 		return
 	}
 	if u.aborted {
-		os.Remove(patchFile)
+		os.Remove(u.patchPath)
 		return
 	}
 
@@ -126,15 +141,35 @@ func (u *UpdaterWindow) run() {
 	u.setProgress(0)
 	if err := u.extract(); err != nil {
 		u.setStatus(fmt.Sprintf("Install error: %v", err))
-		os.Remove(patchFile)
+		os.Remove(u.patchPath)
 		return
 	}
-	os.Remove(patchFile)
+	os.Remove(u.patchPath)
 
-	exePath, _ := filepath.Abs("AutoSplit64.exe")
-	exec.Command(exePath).Start()
+	cmd := exec.Command(filepath.Join(u.baseDir, appExeName))
+	cmd.Dir = u.baseDir
+	cmd.Start()
 
 	u.Synchronize(func() { u.MainWindow.Close() })
+}
+
+// resolvePaths anchors every path this updater touches to the directory of the
+// running executable. The working directory is inherited from whatever started
+// AutoSplit64.exe and is not necessarily the install directory, so it cannot be
+// used to locate the installation.
+func (u *UpdaterWindow) resolvePaths() error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	abs, err := filepath.Abs(exe)
+	if err != nil {
+		return err
+	}
+	u.selfExe = filepath.Clean(abs)
+	u.baseDir = filepath.Dir(u.selfExe)
+	u.patchPath = filepath.Join(u.baseDir, patchFileName)
+	return nil
 }
 
 func fetchRelease() (*Release, error) {
@@ -163,7 +198,7 @@ func (u *UpdaterWindow) download(url string, totalSize int64) error {
 		totalSize = resp.ContentLength
 	}
 
-	f, err := os.Create(patchFile)
+	f, err := os.Create(u.patchPath)
 	if err != nil {
 		return err
 	}
@@ -196,26 +231,13 @@ func (u *UpdaterWindow) download(url string, totalSize int64) error {
 }
 
 func (u *UpdaterWindow) extract() error {
-	r, err := zip.OpenReader(patchFile)
+	r, err := zip.OpenReader(u.patchPath)
 	if err != nil {
 		return err
 	}
 	defer r.Close()
 
-	basePath, err := filepath.Abs(".")
-	if err != nil {
-		return err
-	}
-
-	selfExe, err := selfExecutablePath()
-	if err != nil {
-		return err
-	}
-
-	// Clean up the ".old" residue left by a previous self-replacement. It is
-	// usually gone by now, but removal can fail while the old image is still
-	// mapped into memory; that error is ignored.
-	_ = os.Remove(selfExe + ".old")
+	basePath := u.baseDir
 
 	tmpDir, err := os.MkdirTemp(basePath, ".as64update-tmp")
 	if err != nil {
@@ -240,7 +262,7 @@ func (u *UpdaterWindow) extract() error {
 		u.setProgress(int(done * 100 / totalSize))
 	}
 
-	return replaceFiles(tmpDir, basePath, selfExe)
+	return replaceFiles(tmpDir, basePath, u.selfExe)
 }
 
 // extractFile validates that the entry resolves inside basePath, then writes
@@ -312,27 +334,13 @@ func replaceFiles(tmpDir, basePath, selfExe string) error {
 	})
 }
 
-// selfExecutablePath returns the normalized absolute path of the currently
-// running executable (this Updater.exe).
-func selfExecutablePath() (string, error) {
-	exe, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	abs, err := filepath.Abs(exe)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Clean(abs), nil
-}
-
 // samePath compares two file paths ignoring case, which is required on
 // Windows where paths are case-insensitive.
 func samePath(a, b string) bool {
 	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
 }
 
-// replaceSelf swaps the running Updater.exe for the staged replacement.
+// replaceSelf swaps the running updater executable for the staged replacement.
 // Windows permits renaming an executable image that is currently in use, so the
 // running file is first moved aside to ".old". The new file then takes its
 // place via an ordinary rename, and removal of the old file is attempted
