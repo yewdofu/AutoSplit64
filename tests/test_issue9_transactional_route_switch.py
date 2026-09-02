@@ -63,7 +63,7 @@ def test_save_open_route_success_saves_displays_restarts_once_in_order():
     fake = _fake_with_recorder()
     App._save_open_route(fake, "routes/16_lblj.as64")
     kinds = [c[0] if isinstance(c, tuple) else c for c in fake.calls]
-    assert kinds == ["set_and_save", "remember_recent", "display", "reset"]
+    assert kinds == ["set_and_save", "remember_recent", "load_routes", "display", "reset"]
 
 
 # --- open_route: preserves its three original branches --------------------------

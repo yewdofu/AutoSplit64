@@ -96,6 +96,32 @@ def test_remember_recent_route_saves_updated_history(monkeypatch):
     assert saved == [("route", "recent", ["a.as64", "b.as64"])]
 
 
+def test_opening_a_route_rebuilds_the_menu_listing(tmp_path, monkeypatch):
+    """
+    Recording the path is not enough - without a rebuild the route only
+    reaches the menu on the next launch, which is what opening it is for.
+    """
+    (tmp_path / "routes").mkdir()
+    route = _write_route(tmp_path / "external.as64", "External")
+    recorded = []
+
+    fake = type("F", (), {})()
+    fake._load_and_validate_route = App._load_and_validate_route
+    fake._set_and_save = lambda s, k, v: None
+    fake._remember_recent_route = lambda path: recorded.append(path)
+    fake._display_route = lambda r: None
+    fake._reset = lambda: None
+    fake._route_paths = App._route_paths
+    fake._load_routes = lambda: App._load_routes(fake)
+    _history([route], monkeypatch)
+    monkeypatch.setattr("as64gui.app.user_data_path", lambda *a: str(tmp_path / "routes"))
+
+    App._save_open_route(fake, route)
+
+    assert recorded == [route]
+    assert fake._routes == {"": [["External", route]]}
+
+
 # --- _route_paths: which files get listed ---------------------------------------
 
 def _routes_dir(tmp_path, recent, monkeypatch):

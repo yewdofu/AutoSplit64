@@ -515,6 +515,8 @@ class App(QtWidgets.QMainWindow):
 
         self._set_and_save("route", "path", file_path)
         self._remember_recent_route(file_path)
+        # The route just opened has to reach the menu now, not on next launch.
+        self._load_routes()
         self._display_route(route)
         self._reset()
 
