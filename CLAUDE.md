@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AutoSplit64 is a Windows desktop application for automating LiveSplit during Super Mario 64 speedruns. It captures the game screen in real time, analyzes game state via an ONNX model, and sends split commands to LiveSplit.
 
-- Version: 0.3.3
+- Version: 0.4.0
 - GUI: PyQt5
 - Python: 3.11+
 - Package manager: uv
