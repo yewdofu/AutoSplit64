@@ -282,27 +282,25 @@ class App(QtWidgets.QMainWindow):
             self._save_open_route(file_path)
 
     def reset_route_history(self):
-        """Ask before forgetting the opened routes, since nothing restores the history afterwards."""
+        """
+        Empty the history, taking the listing back to the routes folder
+        alone. The route currently open is listed afterwards only if it
+        lives there; it stays open and configured either way. Asks first,
+        since nothing restores the history.
+        """
         confirmation = QtWidgets.QMessageBox.question(
             self,
             "Reset History",
             "Forget the routes opened from outside the routes folder?"
-            "\n\nThe route currently open is kept, and no route files are deleted.",
+            "\n\nThe list goes back to the routes folder alone. The route currently open stays open,"
+            " and no route files are deleted.",
         )
 
         if confirmation != QtWidgets.QMessageBox.Yes:
             return
 
-        self._set_and_save("route", "recent", self._history_after_reset(config.get("route", "path")))
+        self._set_and_save("route", "recent", [])
         self._load_routes()
-
-    @staticmethod
-    def _history_after_reset(current_path):
-        """
-        What the history keeps after a reset: the route currently open, so
-        the running route stays reachable from the menu, and nothing else.
-        """
-        return [current_path] if current_path else []
 
     def update_found(self, info):
         # TODO: RENAME FUNCTION

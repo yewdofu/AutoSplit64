@@ -248,28 +248,17 @@ def test_json_without_the_route_flag_is_skipped(tmp_path, monkeypatch):
     assert _load(tmp_path, monkeypatch, [str(not_a_route)]) == {}
 
 
-# --- _history_after_reset: what survives Reset History ---------------------------
-
-def test_reset_keeps_only_the_open_route():
-    assert App._history_after_reset("C:/Routes/open.as64") == ["C:/Routes/open.as64"]
-
-
-def test_reset_with_no_open_route_empties_the_history():
-    assert App._history_after_reset("") == []
-
-
-# --- reset_route_history: confirmation gates the reset ---------------------------
+# --- reset_route_history: back to the routes folder alone ------------------------
 
 def _reset_fake(monkeypatch, answer):
     from PyQt5 import QtWidgets
 
     calls = []
     fake = type("F", (), {})()
-    fake._history_after_reset = App._history_after_reset
     fake._set_and_save = lambda s, k, v: calls.append((s, k, v))
     fake._load_routes = lambda: calls.append("load_routes")
 
-    monkeypatch.setattr(config, "get", lambda *a, **kw: "C:/Routes/open.as64")
+    monkeypatch.setattr(config, "get", lambda *a, **kw: "C:/Elsewhere/open.as64")
     monkeypatch.setattr(QtWidgets.QMessageBox, "question", staticmethod(lambda *a, **kw: answer))
 
     return fake, calls
@@ -285,11 +274,40 @@ def test_declining_the_confirmation_changes_nothing(monkeypatch):
     assert calls == []
 
 
-def test_confirming_saves_the_trimmed_history_and_reloads(monkeypatch):
+def test_confirming_empties_the_history_and_reloads(monkeypatch):
     from PyQt5 import QtWidgets
 
     fake, calls = _reset_fake(monkeypatch, QtWidgets.QMessageBox.Yes)
 
     App.reset_route_history(fake)
 
-    assert calls == [("route", "recent", ["C:/Routes/open.as64"]), "load_routes"]
+    assert calls == [("route", "recent", []), "load_routes"]
+
+
+def test_open_route_outside_the_folder_is_not_kept_in_the_listing(monkeypatch):
+    """
+    The route stays open and configured, but a reset takes it off the list
+    like any other route opened from elsewhere.
+    """
+    from PyQt5 import QtWidgets
+
+    fake, calls = _reset_fake(monkeypatch, QtWidgets.QMessageBox.Yes)
+
+    App.reset_route_history(fake)
+
+    assert ("route", "recent", ["C:/Elsewhere/open.as64"]) not in calls
+    # The route is still the configured one - only the listing changes.
+    assert not any(call[1] == "path" for call in calls if isinstance(call, tuple))
+
+
+def test_reset_leaves_the_routes_folder_listed(tmp_path, monkeypatch):
+    """After a reset the listing is rebuilt from the routes folder alone."""
+    routes_dir = tmp_path / "routes"
+    routes_dir.mkdir()
+    inside = _write_route(routes_dir / "inside.as64", "Inside")
+    outside = _write_route(tmp_path / "outside.as64", "Outside")
+
+    assert _load(tmp_path, monkeypatch, [outside]) == {
+        "": [["Inside", inside], ["Outside", outside]]
+    }
+    assert _load(tmp_path, monkeypatch, []) == {"": [["Inside", inside]]}
