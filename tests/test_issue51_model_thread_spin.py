@@ -27,14 +27,16 @@ def test_session_runs_single_threaded_without_spinning():
     assert options.execution_mode == ort.ExecutionMode.ORT_SEQUENTIAL
 
 
-def test_spinning_is_disabled():
-    # add_session_config_entry has no getter, so the settings are checked by
-    # handing them to a real session: onnxruntime rejects an entry it does
-    # not recognise, which is what would happen if a key were misspelled or
-    # dropped from the runtime.
-    session = ort.InferenceSession(_model_path(), sess_options=_session_options())
-
-    assert session is not None
+@pytest.mark.parametrize("key", [
+    "session.intra_op.allow_spinning",
+    "session.inter_op.allow_spinning",
+])
+def test_spinning_is_disabled(key):
+    # The keys are spelled out here rather than read back from the module:
+    # onnxruntime accepts any string as a config entry and silently falls
+    # back to the default for one it does not know, so a typo in the
+    # implementation has to fail as a missing entry against these names.
+    assert _session_options().get_session_config_entry(key) == "0"
 
 
 def test_model_predicts_with_those_options():
