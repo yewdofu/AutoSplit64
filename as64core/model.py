@@ -10,10 +10,27 @@ class PredictionInfo(object):
         self.probability = probability
 
 
+def _session_options() -> ort.SessionOptions:
+    """Keep onnxruntime off the CPU between predictions.
+
+    The model is tiny (67x40) and runs at a handful of frames per second, so the
+    default thread pool - one thread per core, spinning while it waits for the
+    next call - burns whole cores without making inference any faster.
+    """
+    options = ort.SessionOptions()
+    options.intra_op_num_threads = 1
+    options.inter_op_num_threads = 1
+    options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+    options.add_session_config_entry("session.intra_op.allow_spinning", "0")
+    options.add_session_config_entry("session.inter_op.allow_spinning", "0")
+
+    return options
+
+
 class Model(object):
     def __init__(self, model_path, width, height):
         try:
-            self.session = ort.InferenceSession(model_path)
+            self.session = ort.InferenceSession(model_path, sess_options=_session_options())
             self.input_name = self.session.get_inputs()[0].name
         except Exception:
             self.session = None
